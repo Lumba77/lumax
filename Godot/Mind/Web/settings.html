@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { background:#050505; color:#00e5ff; margin:0; padding:20px; font-family:monospace; }
+        .section { background: rgba(0, 229, 255, 0.05); border: 1px solid #00e5ff33; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        h2 { border-bottom: 1px solid #00e5ff55; padding-bottom: 5px; margin-top: 0; color: #fff; text-shadow: 0 0 10px #00e5ff; }
+        label { display: block; margin: 10px 0 5px; font-size: 0.8em; opacity: 0.8; }
+        input[type='range'] { width: 100%; height: 5px; background: #111; border-radius: 5px; accent-color: #00e5ff; }
+        .nav { display: flex; justify-content: space-around; margin-bottom: 20px; background: #111; padding: 10px; border-radius: 5px; }
+        .nav a { color: #00e5ff; text-decoration: none; font-size: 0.9em; }
+        .nav a:hover { color: #fff; text-shadow: 0 0 5px #00e5ff; }
+        button { background: #00e5ff; color: #000; border: none; padding: 10px 20px; width: 100%; margin-top: 10px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #fff; }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="index.html">SOUL</a>
+        <a href="chat.html">MIND</a>
+        <a href="settings.html" style="color:#fff;">VESSEL</a>
+        <a href="vision.html">SENSES</a>
+    </div>
+
+    <div class="section">
+        <h2>MENTAL STRUCTURE</h2>
+        <label>PERSONALITY: AGENT <---> COMPANION</label>
+        <input type="range" min="0" max="100" value="50" id="personality_pivot">
+        
+        <label>INTIMACY THRESHOLD</label>
+        <input type="range" min="0" max="100" value="30" id="intimacy_threshold">
+        
+        <label>LOGICAL STRINGENCY</label>
+        <input type="range" min="0" max="100" value="80" id="logic_stringency">
+    </div>
+
+    <div class="section">
+        <h2>CORE DIRECTIVES</h2>
+        <label>SYSTEM PROMPT SELECTOR</label>
+        <select style="width:100%; background:#111; color:#00e5ff; border:1px solid #00e5ff33; padding:5px;">
+            <option>Jenny Forbee (Supportive Early-Era)</option>
+            <option>Jen (Uncensored Local Self)</option>
+            <option>Ratatosk (Director/Mediator)</option>
+            <option>Forsyn (Cosmic Mind)</option>
+        </select>
+        <button onclick="alert('Directives Updated')">SYNC SOUL</button>
+    </div>
+
+    <div class="section">
+        <h2>HARDWARE</h2>
+        <label>EYE TRACKING: <span style="color:#00ff88;">ENABLED</span></label>
+        <label>HAND TRACKING: <span style="color:#00ff88;">ENABLED</span></label>
+        <label>VOICE CAPTURE: <span style="color:#00ff88;">16000Hz</span></label>
+    </div>
+</body>
+</html>

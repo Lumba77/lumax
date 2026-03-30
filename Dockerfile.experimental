@@ -1,0 +1,29 @@
+FROM lumax_core:latest as lumax-experimental
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2 portaudio19-dev libgomp1 libgl1 libglib2.0-0 libsndfile1 espeak-ng git \
+    cmake build-essential g++ ffmpeg libsndfile1-dev python3.11-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+
+WORKDIR /app
+
+# Core requirements
+COPY requirements_lumax.txt .
+RUN python -m pip install --no-cache-dir -r requirements_lumax.txt
+
+# Experimental TTS Voice Suite installed globally (since donor image is our baseline)
+RUN python -m pip install --no-cache-dir \
+    chatterbox-tts auralis git+https://github.com/nari-labs/dia2.git \
+    fastapi uvicorn httpx pydantic numpy soundfile pyaudio
+
+# Copy Application Code
+COPY ./Backend/Mind /app/mind
+COPY ./Backend/Body /app/body
+
+# Expose experimental port
+EXPOSE 8003
+
+CMD ["python", "-c", "import sys; sys.path.append('/app/body'); import uvicorn; from experimental_interface import app; uvicorn.run(app, host='0.0.0.0', port=8003)"]

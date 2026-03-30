@@ -1,0 +1,25 @@
+# Ignore everything by default
+*
+
+# Allow necessary files for the compagent service
+!compagent.py
+!memory.py
+!requirements.txt
+!Dockerfile
+!__init__.py
+!credentials.json/
+!credentials.json
+
+# Allow files for the ai_forge service
+!forge_engines.py
+!Dockerfile.forge
+
+# Ignore model and engine directories explicitly just in case
+models/
+littleceasar/
+mind/
+brain/
+engines/
+__pycache__/
+.cache/
+*.lock

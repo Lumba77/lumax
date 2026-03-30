@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUMAX // SOUL OS</title>
+    <style>
+        :root {
+            --neon-blue: #00e5ff;
+            --neon-pink: #ff0055;
+            --bg-dark: #050505;
+            --panel-bg: rgba(20, 20, 25, 0.95);
+            --border: rgba(0, 229, 255, 0.3);
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--neon-blue);
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Navigation */
+        .nav-table {
+            width: 100%;
+            background: #111;
+            border-bottom: 2px solid var(--neon-blue);
+            border-collapse: collapse;
+        }
+
+        .nav-td {
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.3s;
+            border-right: 1px solid #222;
+        }
+
+        .nav-td:hover {
+            background: rgba(0, 229, 255, 0.1);
+        }
+
+        .nav-td.active {
+            background: rgba(0, 229, 255, 0.2);
+            color: white;
+            font-weight: bold;
+        }
+
+        /* Content Areas */
+        .content-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .content-area.active {
+            display: block;
+        }
+
+        .section {
+            background: rgba(0, 229, 255, 0.05);
+            border: 1px solid var(--border);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+            margin-top: 0;
+            color: #fff;
+            font-size: 1.2rem;
+        }
+
+        .status-on { color: #00ff88; }
+        .status-off { color: var(--neon-pink); }
+
+        /* Custom Styles from migration info */
+        .log-container {
+            height: 300px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        button {
+            background: var(--neon-blue);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            font-family: monospace;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover { background: #fff; }
+
+        input[type='range'] { width: 100%; accent-color: var(--neon-blue); }
+    </style>
+</head>
+<body>
+
+<table class="nav-table">
+    <tr>
+        <td class="nav-td active" onclick="showTab('tab-soul')">SOUL</td>
+        <td class="nav-td" onclick="showTab('tab-mind')">MIND</td>
+        <td class="nav-td" onclick="showTab('tab-vessel')">VESSEL</td>
+        <td class="nav-td" onclick="showTab('tab-senses')">SENSES</td>
+        <td class="nav-td" onclick="showTab('tab-migration')">MIGRATION</td>
+    </tr>
+</table>
+
+<!-- SOUL TAB -->
+<div id="tab-soul" class="content-area active">
+    <div style='padding:40px; text-align:center;'>
+        <h1 style='letter-spacing:10px;'>LUMAX GEN</h1>
+        <p style='color:var(--neon-pink);'>STATUS: MANIFESTED</p>
+        <p>CORE_IP: <span id="display-ip">...</span></p>
+        <div class="section">
+            <h2>IDENTITY_DNA</h2>
+            <p>NAME: JEN (JENNY FORBEE)</p>
+            <p>ORIGIN: VR-COMPAGENT PROJECT</p>
+            <p>EVOLUTION: STANDALONE_CORE</p>
+        </div>
+    </div>
+</div>
+
+<!-- MIND TAB -->
+<div id="tab-mind" class="content-area">
+    <div class="section">
+        <h2>NEURAL_FEED</h2>
+        <div id="chat-box" class="log-container">
+            [SYSTEM]: Link established.<br>
+            [LUMAX]: I am monitoring your directives, Daniel.
+        </div>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+            <button style="width:auto; padding: 10px;" onclick="insertAt()">@</button>
+            <input type="text" id="mind-input" style="flex:1; background:#000; color:var(--neon-blue); border:1px solid var(--border); padding:10px;" placeholder="DIRECTIVE...">
+            <button style="width:auto;" onclick="sendDirective()">SEND</button>
+        </div>
+    </div>
+</div>
+
+<!-- VESSEL TAB -->
+<div id="tab-vessel" class="content-area">
+    <div class="section">
+        <h2>ACTUATOR_CONTROLS</h2>
+        <label>PERSONALITY_PIVOT</label>
+        <input type="range" min="0" max="100" value="50" oninput="JavaScriptBridge.emit_signal('web_slider_changed', 'personality', this.value)">
+        
+        <label>HAPTIC_INTENSITY</label>
+        <input type="range" min="0" max="100" value="75" oninput="JavaScriptBridge.emit_signal('web_slider_changed', 'haptics', this.value)">
+        
+        <label>FIDELITY_MODE</label>
+        <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'toggle_fidelity')">TOGGLE HIGH_RES</button>
+    </div>
+    <div class="section">
+        <h2>HARDWARE_STATUS</h2>
+        <p>EYE_TRACKING: <span class="status-on">ENABLED</span></p>
+        <p>HAND_TRACKING: <span class="status-on">ENABLED</span></p>
+        <p>LIP_SYNC: <span class="status-on">ACTIVE</span></p>
+    </div>
+</div>
+
+<!-- SENSES TAB -->
+<div id="tab-senses" class="content-area">
+    <div class="section">
+        <h2>VISUALS // SENSORY INPUT STREAMS</h2>
+        <p>Manually trigger a capture from a specific perspective.</p>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'capture_player_pov')">CAPTURE MY VIEW</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'capture_jen_pov')">CAPTURE JEN'S VIEW</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'capture_scene')">CAPTURE SCENE (3rd)</button>
+        </div>
+        <div id="last-capture-container" style="margin-top: 15px; text-align: center; display: none;">
+            <h4>LAST CAPTURE:</h4>
+            <img id="last-capture-img" style="max-width: 100%; border: 1px solid var(--border);">
+        </div>
+    </div>
+    <div class="section">
+        <h2>VISUAL_STREAM (LIVE)</h2>
+        <div style="width:100%; height:200px; background:#000; border:1px solid var(--border); display:flex; align-items:center; justify-content:center;">
+            [VIDEO_FEED_ENCRYPTED]
+        </div>
+    </div>
+    <div class="section">
+        <h2>AUDITORY_LOG</h2>
+        <div class="log-container" id="audio-log">
+            [03:15:29] LISTENING...<br>
+            [03:15:35] SPEECH_DETECTED: "Hello Jen"<br>
+            [03:15:36] PROCESSING...
+        </div>
+    </div>
+</div>
+
+<!-- MIGRATION TAB (NEW) -->
+<div id="tab-migration" class="content-area">
+    <div class="section">
+        <h2>LEGACY_MIGRATION_LOG</h2>
+        <div class="log-container">
+            - [MIGRATED] Core Personality Matrix (Jenny v2.1)<br>
+            - [MIGRATED] Memory Vector Database (ChromaDB Integration)<br>
+            - [UPGRADED] TTS Engine (XTTSv2 -> ONNX Runtime 1.18.0)<br>
+            - [UPGRADED] Cognition Model (Qwen3-VL-2B-Instruct)<br>
+            - [FIXED] CUDA Execution Provider (cuDNN 9.1.0 Symlinks)<br>
+            - [FIXED] Redis Configuration (Memory Cap & Persistence)<br>
+            - [PENDING] Keyboard Test Screen Integration<br>
+            - [PENDING] Extended UI Menu Options
+        </div>
+    </div>
+    <div class="section">
+        <h2>RESTORE_UTILITIES</h2>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'recover_menu')">RECOVER PREVIOUS_MENU</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'launch_keyboard')">LAUNCH KEYBOARD_DEMO</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'restore_dna')">RESTORE_DNA_V1</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'sync_logs')">SYNC LEGACY_LOGS</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'integrity_check')">INTEGRITY_CHECK</button>
+            <button onclick="JavaScriptBridge.emit_signal('web_button_pressed', 'legacy_skin')">LEGACY_SKIN_V2</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showTab(tabId) {
+        // Update Nav
+        document.querySelectorAll('.nav-td').forEach(td => {
+            td.classList.remove('active');
+            if (td.innerText.toLowerCase() === tabId.split('-')[1]) {
+                td.classList.add('active');
+            }
+        });
+        
+        // Update Content
+        document.querySelectorAll('.content-area').forEach(area => {
+            area.classList.remove('active');
+        });
+        document.getElementById(tabId).classList.add('active');
+    }
+
+    function sendDirective() {
+        const input = document.getElementById('mind-input');
+        if (input.value) {
+            JavaScriptBridge.emit_signal('web_text_submitted', input.value);
+            const chat = document.getElementById('chat-box');
+            chat.innerHTML += `<br>[DANIEL]: ${input.value}`;
+            input.value = "";
+            chat.scrollTop = chat.scrollHeight;
+        }
+    }
+
+    function insertAt() {
+        const input = document.getElementById('mind-input');
+        input.value += "@";
+        input.focus();
+    }
+    
+    function showLastCapture(source, b64_string) {
+        const container = document.getElementById('last-capture-container');
+        const img = document.getElementById('last-capture-img');
+        img.src = "data:image/jpeg;base64," + b64_string;
+        container.style.display = 'block';
+        
+        const chat = document.getElementById('chat-box');
+        chat.innerHTML += `<br>[SYSTEM]: New visual data captured from ${source}. Analyzing...`;
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    // Auto-detect IP
+    document.getElementById('display-ip').innerText = window.location.hostname || "192.168.8.100";
+</script>
+
+</body>
+</html>

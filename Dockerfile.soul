@@ -1,0 +1,25 @@
+FROM lumax-lumax_chatterbox_turbo:latest
+
+WORKDIR /app
+
+# The user has media docker images (32GB). Using one as base.
+# Install full build dependencies used in the main project Dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2 portaudio19-dev libgomp1 libgl1 libglib2.0-0 libsndfile1 espeak-ng git \
+    cmake build-essential g++ ffmpeg libsndfile1-dev python3.11-dev libportaudio2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Fix potential NameError in donor image
+RUN sed -i '1i from typing import Any' /app/body_interface.py || true
+
+# Include CUDA tools in PATH for building llama-cpp
+ENV PATH="/usr/local/cuda-12.4/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda-12.4/lib64:${LD_LIBRARY_PATH}"
+# Link cuda for build scripts that expect /usr/local/cuda
+RUN ln -s /usr/local/cuda-12.4 /usr/local/cuda || true
+
+# Install llama-cpp-python with CUDA support using PRE-BUILT WHEELS to save user data
+RUN pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+
+EXPOSE 8000
+CMD ["python", "/app/mind/Cognition/compagent.py"]

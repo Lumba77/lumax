@@ -1,0 +1,33 @@
+[gd_scene load_steps=7 format=3 uid="uid://b2x8jen9vs8u1"]
+
+[ext_resource type="PackedScene" path="res://Body/Models/Jen_Base.vrm" id="1_vrm"]
+[ext_resource type="Script" path="res://scripts/avatar_controller.gd" id="3_ctrl"]
+[ext_resource type="Script" path="res://scripts/tactile_nerve_network.gd" id="5_nerve"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
+radius = 0.4
+height = 1.5
+
+[node name="Avatar" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("3_ctrl")
+
+[node name="AvatarModel" parent="." instance=ExtResource("1_vrm")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+visible = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
+shape = SubResource("CapsuleShape3D_1")
+
+[node name="AnimationTree" type="AnimationTree" parent="."]
+active = true
+
+[node name="VoicePlayer" type="AudioStreamPlayer3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+unit_size = 3.0
+bus = &"Voices"
+
+[node name="TactileNerveNetwork" type="Node" parent="."]
+script = ExtResource("5_nerve")

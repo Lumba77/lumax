@@ -1,0 +1,49 @@
+[gd_scene load_steps=7 format=3 uid="uid://nnse6wsxsjeo"]
+
+[ext_resource type="PackedScene" uid="uid://clujaf3u776a3" path="res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn" id="1"]
+[ext_resource type="Script" path="res://Mind/WebUI.gd" id="2_new"]
+[ext_resource type="Script" path="res://Mind/TactileInput_v2.gd" id="4_v2"]
+
+[sub_resource type="ViewportTexture" id="1"]
+resource_local_to_scene = true
+
+[sub_resource type="BoxShape3D" id="4"]
+resource_local_to_scene = true
+size = Vector3(0.7, 1.2, 0.02)
+
+[node name="Display" instance=ExtResource("1")]
+screen_size = Vector2(0.7, 1.2)
+viewport_size = Vector2(700, 1200)
+unshaded = true
+transparent = 1
+
+[node name="Viewport" parent="." index="0"]
+size = Vector2i(700, 1200)
+transparent_bg = true
+
+[node name="WebUI" type="Control" parent="Viewport" index="0"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 0.8
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("2_new")
+
+[node name="TactileInput" type="Control" parent="Viewport" index="1"]
+anchors_preset = 15
+anchor_top = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("4_v2")
+
+[node name="Screen" parent="." index="1"]
+texture = SubResource("1")
+
+[node name="StaticBody3D" parent="." index="2"]
+screen_size = Vector2(0.7, 1.2)
+viewport_size = Vector2(700, 1200)
+
+[node name="CollisionShape3D" parent="StaticBody3D" index="0"]
+shape = SubResource("4")

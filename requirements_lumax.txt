@@ -1,0 +1,27 @@
+# Core API
+fastapi
+uvicorn
+httpx
+pydantic
+redis
+# GGUF Engine (llama.cpp)
+llama-cpp-python
+# Quantization & Performance
+auto-gptq
+optimum
+bitsandbytes
+# Audio & Senses
+pyaudio
+numpy
+scipy
+soundfile
+# Personality & Biological Logic
+python-dotenv
+aiohttp
+# Voice dependencies
+faster-whisper
+piper-tts
+
+compressed-tensors
+qwen-vl-utils
+torchvision

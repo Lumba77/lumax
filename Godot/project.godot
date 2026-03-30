@@ -1,0 +1,57 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Lumax"
+run/main_scene="res://Nexus/Lumax_Core.tscn"
+config/features=PackedStringArray("4.6")
+
+[audio]
+
+driver/enable_input=true
+driver/mix_rate=16000
+
+[autoload]
+
+LogMaster="*res://scripts/diagnostic/log_master.gd"
+XRToolsUserSettings="*uid://bqgb8i74tm0t"
+XRToolsRumbleManager="*uid://by853dk86g1qw"
+
+[debug]
+
+settings/stdout/print_fps=true
+settings/logging/enable_file_logging=true
+settings/logging/enable_file_logging.pc=true
+settings/logging/enable_file_logging.mobile=true
+settings/logging/log_path="user://logs/godot.log"
+settings/logging/max_log_files=5
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/vrm/plugin.cfg", "res://addons/mixamo_animation_retargeter/plugin.cfg", "res://addons/godot-xr-tools/plugin.cfg")
+
+[rendering]
+
+viewport/transparent_background=true
+renderer/quality/driver_name="Forward+"
+vrs/mode.mobile=0
+anti_aliasing/quality/msaa_3d.mobile=0
+
+[xr]
+
+openxr/enabled=true
+openxr/default_action_map="res://Nexus/lumax_input_v2.tres"
+openxr/foveation_level=3
+openxr/foveation_dynamic=true
+shaders/enabled=true
+openxr/extensions/meta_xr=true
+openxr/extensions/automatically_request_runtime_permissions=true
+hybrid_app/enabled=false

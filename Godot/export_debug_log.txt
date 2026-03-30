@@ -1,0 +1,67 @@
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+TextServer: Added interface "Dummy"
+TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
+Using "default" pen tablet driver...
+ 
+TextServer: Primary interface set to: "ICU / HarfBuzz / Graphite (Built-in)".
+CORE API HASH: 2995524600
+EDITOR API HASH: 3767149329
+EditorSettings: Load OK!
+Loaded system CA certificates
+EditorSettings: Save OK!
+EditorSettings: Save OK!
+XR: Clearing primary interface
+XR: Removed interface "Native mobile"
+XR: Removed interface "OpenXR"
+Orphan StringName: EditorPathSmoothHandle (static: 1, total: 2)
+Orphan StringName: EditorHandle (static: 2, total: 3)
+Orphan StringName: EditorPathSharpHandle (static: 0, total: 1)
+Orphan StringName: Node (static: 9, total: 10)
+Orphan StringName: EditorHandleDisabled (static: 1, total: 2)
+Orphan StringName: EditorCurveHandle (static: 1, total: 2)
+Orphan StringName: EditorHandleAdd (static: 0, total: 1)
+StringName: 7 unclaimed string names at exit.
+WARNING: Custom cursor shape not supported by this display server.
+     at: cursor_set_custom_image (servers/display_server.cpp:505)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:60)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:61)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:62)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:63)
+ERROR: Failed to load script "res://addons/godot-xr-tools/user_settings/user_settings.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript.cpp:2726)
+ERROR: Failed to create an autoload, script 'res://addons/godot-xr-tools/user_settings/user_settings.gd' does not inherit from 'Node'.
+   at: (editor/editor_autoload_settings.cpp:423)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:60)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:61)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:62)
+SCRIPT ERROR: Parse Error: Could not resolve class "XRTools", because of a parser error.
+          at: GDScript::reload (res://addons/godot-xr-tools/user_settings/user_settings.gd:63)
+SCRIPT ERROR: Compile Error: 
+          at: GDScript::reload (res://addons/godot-xr-tools/rumble/rumble_manager.gd:-1)
+ERROR: Failed to load script "res://addons/godot-xr-tools/rumble/rumble_manager.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript.cpp:2726)
+WARNING: Blend file import is enabled, but the Blender path doesn't point to an accessible directory. Blend files will not be imported.
+     at: _editor_init (modules/gltf/register_types.cpp:65)
+ERROR: Parameter "profile_def" is null.
+   at: _update_interaction_profile (modules/openxr/editor/openxr_interaction_profile_editor.cpp:260)
+SCRIPT ERROR: Parse Error: Unexpected "Indent" in class body.
+          at: GDScript::reload (res://Nexus/SkeletonKey.gd:38)
+ERROR: Failed to load script "res://Nexus/SkeletonKey.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript.cpp:2726)
+ERROR: Cannot export project with preset "Android" due to configuration errors:
+Ingen exportmall hittades vid den f�rv�ntade s�kv�gen:
+C:/Users/lumba/AppData/Roaming/Godot/export_templates/4.2.2.stable/android_debug.apk
+Ingen exportmall hittades vid den f�rv�ntade s�kv�gen:
+C:/Users/lumba/AppData/Roaming/Godot/export_templates/4.2.2.stable/android_release.apk
+A valid Android SDK path is required in Editor Settings.
+
+   at: _fs_changed (editor/editor_node.cpp:978)
+ERROR: Project export for preset "Android" failed.
+   at: _fs_changed (editor/editor_node.cpp:994)

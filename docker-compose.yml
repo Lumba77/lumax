@@ -1,0 +1,123 @@
+services:
+  lumax_soul:
+    build:
+      context: .
+      dockerfile: Dockerfile.soul
+    image: lumax_soul:patched
+    container_name: Lumax_Soul
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./Backend/Mind:/app/mind
+      - ./Backend/Body:/app/body
+      - /d/VR_AI_Forge_Data/models:/app/models
+    environment:
+      - LLM_PROVIDER=LOCAL
+      - REDIS_HOST=lumax_memory
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - STT_SERVICE_URL=http://lumax_ears:8001/stt
+      - TTS_SERVICE_URL=http://lumax_mouth:8002/tts
+      - TTS_ENGINE=TURBO
+      - LUMAX_MODEL_PATH=/app/models/Mind/Cognition/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k.gguf
+    networks:
+      - lumax_local
+
+  lumax_ears:
+    image: vr-compagent-jen_unified_vessel:latest
+    container_name: Lumax_Ears
+    ports:
+      - "8001:8001"
+    command: ["python", "-c", "import sys; sys.path.insert(0, '/app/body'); import uvicorn; from body_interface import app; uvicorn.run(app, host='0.0.0.0', port=8001)"]
+    volumes:
+      - ./Backend/Mind:/app/mind
+      - ./Backend/Body:/app/body
+    environment:
+      - MODE=EARS
+    networks:
+      - lumax_local
+
+  lumax_mouth:
+    image: vr-compagent-jen_unified_vessel:latest
+    container_name: Lumax_Mouth
+    ports:
+      - "8002:8002"
+    command: ["python", "-c", "import sys; sys.path.insert(0, '/app/body'); import uvicorn; from body_interface import app; uvicorn.run(app, host='0.0.0.0', port=8002)"]
+    volumes:
+      - ./Backend/Mind:/app/mind
+      - ./Backend/Body:/app/body
+    environment:
+      - MODE=MOUTH
+    networks:
+      - lumax_local
+
+  lumax_chatterbox:
+    image: daswer123/xtts-api-server
+    container_name: Lumax_Chatterbox
+    ports:
+      - "8020:8020"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - /d/VR_AI_Forge_Data/models/Chatterbox:/models
+    networks:
+      - lumax_local
+
+  lumax_chatterbox_turbo:
+    build:
+      context: .
+      dockerfile: Dockerfile.turbo
+    container_name: Lumax_Chatterbox_Turbo
+    ports:
+      - "8005:8005"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - /d/VR_AI_Forge_Data/models/ChatterboxTurbo:/app/models
+    networks:
+      - lumax_local
+
+  lumax_creativity:
+    image: vr-compagent-jen_unified_vessel:latest
+    container_name: Lumax_Creativity
+    ports:
+      - "8004:8004"
+    command: ["python", "-c", "import sys; sys.path.append('/app/mind/Creativity'); import uvicorn; from creative_service import app; uvicorn.run(app, host='0.0.0.0', port=8004)"]
+    volumes:
+      - ./Backend/Mind:/app/mind
+    environment:
+      - MODE=CREATIVITY
+    networks:
+      - lumax_local
+
+  lumax_memory:
+    image: redis:7-alpine
+    container_name: Lumax_Memory
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./Backend/Mind/Memory/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./Backend/Mind/Memory/data:/data
+    networks:
+      - lumax_local
+
+networks:
+  lumax_local:
+    driver: bridge

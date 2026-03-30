@@ -1,0 +1,19 @@
+FROM nvcr.io/nvidia/pytorch:24.03-py3
+
+# Install core high-performance ONNX toolkit
+RUN pip install --no-cache-dir \
+    optimum[onnxruntime-gpu] \
+    transformers \
+    onnx \
+    onnxruntime-gpu \
+    accelerate \
+    sentencepiece
+
+# SURGICAL PATCH: Fix the 'torch' has no attribute 'rms_norm' error in optimum
+# This is required for compatibility with the NVIDIA PyTorch base image.
+RUN sed -i '508d' /usr/local/lib/python3.10/dist-packages/optimum/exporters/onnx/model_patcher.py
+
+# Clean up
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
