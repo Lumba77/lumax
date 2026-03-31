@@ -891,8 +891,8 @@ func _process(_delta):
 	if Time.get_ticks_msec() % 10000 < 50:
 		if _synapse: _synapse.call("get_vitals")
 
-	# 3. Subconscious Agency Tick (30-90s)
-	if Time.get_ticks_msec() % 35000 < 50:
+	# 3. Subconscious Agency Tick (15-45s)
+	if Time.get_ticks_msec() % 15000 < 50:
 		_process_self_agency()
 
 	# 4. STATE FLAG BEHAVIORAL READS (restored)
@@ -909,18 +909,38 @@ func _process(_delta):
 
 
 func _process_self_agency():
-	if not _anim_player or _anim_player.is_playing(): return
+	if not _anim_player: return
+	
+	# If currently playing a high-level action, don't interrupt her 'thought'
+	if _anim_player.is_playing() and _anim_player.current_animation != "lumax/active_idle":
+		return
+
 	var r = randf()
 	
-	# RESTORE: Agency frequency influenced by _soul_nourishment
-	var agency_threshold = 0.1 * _soul_nourishment
-	var vision_threshold = 0.2 * _soul_nourishment
+	# SENSORY CURIOSITY: Jen 'enjoys' sensing the world
+	# Thresholds weighted by her current nourishment/state
+	var vision_intent = 0.15 * _soul_nourishment
+	var aural_intent = 0.05 * _soul_nourishment
 	
-	if r < agency_threshold:
-		play_body_animation("LOOK_AROUND:0.5:1,IDLE:0:5")
-	elif r < vision_threshold:
-		_show_jen_notification("Engaging Visual Cortex...", Color.ORANGE)
+	if r < vision_intent:
+		# She decides to look at something
+		_show_jen_notification("Gazing with curiosity...", Color.MEDIUM_AQUAMARINE)
 		_capture_and_send_vision("JEN_POV")
+	elif r < (vision_intent + aural_intent):
+		# She 'listens' to the room ambience
+		_show_jen_notification("Attuning to the room...", Color.SKY_BLUE)
+		if _synapse: _synapse.call("inject_sensory_event", "Jen is quietly listening to the background ambience of the user's space.")
+	
+	# BEHAVIORAL VARIANTS: Instead of random, she 'shifts' her idle state
+	if randf() < 0.1:
+		_trigger_subtle_pose_shift()
+
+func _trigger_subtle_pose_shift():
+	var variants = ["idle", "look_around", "bored", "contemplate"]
+	var chosen = variants.pick_random()
+	# Play at a very low speed for 'graceful' movement if possible, or just standard
+	play_body_animation(chosen.to_upper() + ":0.2:1.5")
+	print("LUMAX: Jen autonomously shifted to ", chosen, " state.")
 
 func _poll_xr_inputs(_delta):
 	_left_hand = get_node_or_null("XROrigin3D/LeftHand")
