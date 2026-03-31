@@ -42,6 +42,7 @@ func _capture_from_viewport(vp: Viewport) -> Dictionary:
 	await get_tree().process_frame 
 	await get_tree().process_frame
 	await get_tree().process_frame
+	await get_tree().process_frame # EXTRA BUFFER
 	
 	var texture = vp.get_texture()
 	if not texture: 

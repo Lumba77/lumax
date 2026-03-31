@@ -592,6 +592,7 @@ func _setup_user_vision():
 	var vp = SubViewport.new(); vp.name = "UserVisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
 	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	vp.transparent_bg = false # Do NOT be transparent, otherwise we see into the void
 	vp.world_3d = get_viewport().find_world_3d() # SHARE THE WORLD
 	
 	var capture_cam = Camera3D.new(); capture_cam.name = "UserCaptureCamera"; vp.add_child(capture_cam)
