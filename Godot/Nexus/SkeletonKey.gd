@@ -937,14 +937,7 @@ func _poll_xr_inputs(_delta):
 	var r_trig = _right_hand.get_float("trigger") > 0.5 if _right_hand else false
 	var l_trig = _left_hand.get_float("trigger") > 0.5 if _left_hand else false
 
-	# --- TRIGGER CHORD: Haptic Wand Mode Toggle ---
-	if r_trig and l_trig:
-		if not _prev_haptic_combo:
-			_toggle_haptic_wand_mode()
-			_prev_haptic_combo = true
-	elif not r_trig and not l_trig:
-		# Reset chord lock only when BOTH are released
-		_prev_haptic_combo = false
+	# (Chorded Trigger Chord moved to X+A)
 
 	if _right_hand:
 		for i in range(20): # Scan standard Godot button range
@@ -976,10 +969,10 @@ func _poll_xr_inputs(_delta):
 		if Engine.get_frames_drawn() % 60 == 0:
 			LogMaster.log_info("QUEST VOICE: Still recording... Button state: " + str(r_b))
 
-	# --- Chorded Input: X+A (System Check) ---
+	# --- Chorded Input: X+A (Haptic Wand Toggle) ---
 	if l_x and r_a:
 		if not _chord_active:
-			_on_system_check_requested()
+			_toggle_haptic_wand_mode()
 			_chord_active = true
 	elif not l_x and not r_a:
 		_chord_active = false
