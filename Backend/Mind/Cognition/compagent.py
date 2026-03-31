@@ -387,6 +387,8 @@ async def handle_compagent_request(request: CompagentRequest):
         clean_res = MindCore.clean_response(raw_response)
         text = clean_res["text"]
         thought = clean_res["thought"]
+        emotion = clean_res["emotion"]
+        action = clean_res["action"]
         dream = clean_res["dream"]
 
         # 3. Handle VR Features (Skipped for browser)
@@ -396,6 +398,8 @@ async def handle_compagent_request(request: CompagentRequest):
             await redis_memory.add_message_to_session(session_id, "user", request.input)
             await redis_memory.add_message_to_session(session_id, "ai", text)
             if thought: await redis_memory.add_message_to_session(session_id, "thought", thought)
+            if emotion: await redis_memory.add_message_to_session(session_id, "emotion", emotion)
+            if action: await redis_memory.add_message_to_session(session_id, "action", action)
             
             try:
                 async with httpx.AsyncClient(timeout=120.0) as hc:
@@ -411,6 +415,8 @@ async def handle_compagent_request(request: CompagentRequest):
     return JSONResponse({
         "response": text,
         "thought": thought,
+        "emotion": emotion,
+        "action": action,
         "audio": audio_b64,
         "image_b64": image_b64,
         "mode": engine.engine_type

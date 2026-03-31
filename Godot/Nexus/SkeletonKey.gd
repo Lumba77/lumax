@@ -1417,18 +1417,31 @@ func _on_jen_response(data, _mode):
 		print("LUMAX: Personality presets cached.")
 		return
 
-	var text = data.get("text", "...") if data is Dictionary else str(data)
+	var text = "..."
+	var emotion = "NEUTRAL"
+	var action = ""
+	var thought = ""
+
+	if data is Dictionary:
+		text = data.get("response", data.get("text", "..."))
+		emotion = data.get("emotion", "NEUTRAL")
+		action = data.get("action", "")
+		thought = data.get("thought", "")
+	else:
+		text = str(data)
+
 	if _web_ui: _web_ui.call("add_message", "LUMAX", text)
 	
-	# Parse for experimental animation commands in the text or tags
-	var anim_regex = RegEx.new()
-	anim_regex.compile("<action>(.*?)</action>")
-	var matches = anim_regex.search_all(text)
-	for m in matches:
-		var anim_cmd = m.get_string(1)
-		play_body_animation(anim_cmd)
+	# Manifest Emotion (Visual/Social context)
+	if emotion != "NEUTRAL":
+		_show_jen_notification("Mood: " + emotion, Color.MAGENTA)
+		_social_vibe = emotion
+	
+	# Manifest Action (Physical command)
+	if action != "":
+		_show_jen_notification("Acting: " + action, Color.YELLOW)
+		play_body_animation(action)
 
-	var thought = data.get("thought", "") if data is Dictionary else ""
 	if thought != "":
 		_show_jen_notification("Thinking: " + thought, Color.ORANGE)
 	else:
