@@ -88,18 +88,16 @@ func _capture_player_pov() -> Dictionary:
 
 
 func _capture_jen_pov() -> Dictionary:
-	# Recursive search for the vision anchor
-	var vp = get_tree().root.find_child("VisionViewport", true, false)
+	# Deep-scan for the correct dynamic VisionViewport
+	var sk = get_tree().root.find_child("LumaxCore", true, false)
+	var vp = null
+	if sk:
+		var jen = sk.get_node_or_null("Body")
+		if jen: vp = jen.find_child("VisionViewport", true, false)
 	
 	if not vp:
-		# Manual deep-dive fallback
-		var sk = get_tree().root.find_child("LumaxCore", true, false)
-		if sk:
-			var body = sk.get_node_or_null("Body")
-			if body:
-				var av = body.get_node_or_null("Avatar")
-				if av:
-					vp = av.find_child("VisionViewport", true, false)
+		# Fallback to general search
+		vp = get_tree().root.find_child("VisionViewport", true, false)
 
 	if not vp: 
 		print("MultiVisionHandler: VisionViewport NOT FOUND.")
