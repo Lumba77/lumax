@@ -114,6 +114,7 @@ func _ready():
 	_content_stack.add_child(conf_vbox)
 	
 	var conf_panel = PanelContainer.new()
+	conf_panel.name = "ConfPanel"
 	var style_conf = StyleBoxFlat.new()
 	style_conf.bg_color = Color(0, 0, 0, 0.4); style_conf.set_corner_radius_all(15)
 	style_conf.border_width_bottom = 2; style_conf.border_color = Color(1,1,1,0.05)
@@ -121,6 +122,7 @@ func _ready():
 	conf_vbox.add_child(conf_panel)
 
 	var h_grid = HBoxContainer.new()
+	h_grid.name = "HGrid"
 	h_grid.add_theme_constant_override("separation", 5)
 	conf_panel.add_child(h_grid)
 	
