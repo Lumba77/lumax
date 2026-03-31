@@ -27,8 +27,14 @@ app.add_middleware(
 
 # Environment State
 MODE = os.getenv("MODE", "EARS") # Default to EARS if not set
+
+# Hostnames (May be flaky in some Docker setups)
 CHATTERBOX_URL = "http://lumax_chatterbox:8020"
 TURBO_URL = "http://lumax_chatterbox_turbo:8005"
+
+# Direct IPs (Static within the bridge network if not recreated often)
+CHATTERBOX_IP = "http://172.18.0.9:8020"
+TURBO_IP = "http://172.18.0.8:8005"
 
 # --- Whisper Model Initialization (Only in EARS mode to save VRAM) ---
 whisper_model = None
@@ -98,31 +104,77 @@ async def handle_tts(request: TTSRequest):
     
     try:
         async with httpx.AsyncClient() as client:
-            # TURBO FALLBACK LOGIC
+            # TURBO PRIMARY
             if engine_to_use == "TURBO":
-                try:
-                    target = f"{TURBO_URL}/tts"
-                    payload = {"text": request.text, "speaker_id": request.voice}
-                    logger.info(f"Mouth: Attempting TURBO at {target}")
-                    resp = await client.post(target, json=payload, timeout=5.0)
-                    if resp.status_code != 200:
-                        logger.warning("TURBO engine returned error, falling back to CHATTERBOX")
-                        engine_to_use = "CHATTERBOX"
-                    else:
-                        return Response(content=resp.content, media_type="audio/wav")
-                except Exception as e:
-                    logger.warning(f"TURBO engine connection failed ({e}), falling back to CHATTERBOX")
-                    engine_to_use = "CHATTERBOX"
+                # Try Direct IP first for reliability
+                targets = [f"{TURBO_IP}/tts", f"{TURBO_URL}/tts"]
+                for target in targets:
+                    try:
+                        payload = {"text": request.text, "speaker_id": request.voice}
+                        logger.info(f"Mouth: Attempting TURBO at {target}")
+                        resp = await client.post(target, json=payload, timeout=10.0)
+                        if resp.status_code == 200:
+                            return Response(content=resp.content, media_type="audio/wav")
+                        logger.warning(f"TURBO target {target} returned status {resp.status_code}")
+                    except Exception as e:
+                        logger.warning(f"Failed to reach TURBO {target}: {e}")
+                
+                # If Turbo fails, fallback to Chatterbox
+                logger.warning("All TURBO attempts failed. Falling back to CHATTERBOX...")
+                engine_to_use = "CHATTERBOX"
 
             # STABLE CHATTERBOX (Port 8020)
             if engine_to_use == "CHATTERBOX":
-                target = f"{CHATTERBOX_URL}/tts"
-                payload = {"text": request.text, "speaker_wav": request.voice, "language": "en"}
-                logger.info(f"Mouth: Forwarding to {target}")
-                resp = await client.post(target, json=payload, timeout=120.0)
-                if resp.status_code != 200:
-                    raise HTTPException(status_code=resp.status_code, detail=f"TTS Engine (CHATTERBOX) error")
-                return Response(content=resp.content, media_type="audio/wav")
+                # STRATEGY: Try TURBO first as a surrogate since it's much faster and likely online
+                logger.info("Mouth: CHATTERBOX requested. Attempting TURBO surrogate first...")
+                turbo_targets = [f"{TURBO_IP}/tts", f"{TURBO_URL}/tts"]
+                success = False
+                for target in turbo_targets:
+                    try:
+                        payload = {"text": request.text, "speaker_id": request.voice}
+                        resp = await client.post(target, json=payload, timeout=5.0)
+                        if resp.status_code == 200:
+                            logger.info(f"Mouth: TURBO successfully acted as CHATTERBOX surrogate via {target}.")
+                            return Response(content=resp.content, media_type="audio/wav")
+                    except Exception as te:
+                        logger.warning(f"Mouth: TURBO surrogate attempt at {target} failed: {te}")
+                
+                # Fallback to actual Chatterbox
+                targets = [f"{CHATTERBOX_IP}/tts", f"{CHATTERBOX_URL}/tts"]
+                for target in targets:
+                    try:
+                        payload = {"text": request.text, "speaker_wav": request.voice, "language": "en"}
+                        logger.info(f"Mouth: Forwarding to XTTS at {target}")
+                        resp = await client.post(target, json=payload, timeout=30.0)
+                        if resp.status_code == 200:
+                            return Response(content=resp.content, media_type="audio/wav")
+                        logger.warning(f"XTTS target {target} returned status {resp.status_code}")
+                    except Exception as e:
+                        logger.warning(f"Failed to reach XTTS {target}: {e}")
+                
+                # If we reach here, XTTS failed. Fallback to Piper.
+                logger.warning("All XTTS attempts failed. Attempting PIPER fallback...")
+                engine_to_use = "PIPER"
+
+            # PIPER LOCAL SYNTHESIS
+            if engine_to_use == "PIPER":
+                try:
+                    import subprocess
+                    model_path = "/app/models/Mouth/en_US-amy-medium.onnx"
+                    if not os.path.exists(model_path):
+                        raise Exception(f"Piper model missing at {model_path}")
+                    
+                    cmd = ["piper", "--model", model_path, "--output_raw"]
+                    process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    stdout, stderr = process.communicate(input=request.text.encode('utf-8'))
+                    
+                    if process.returncode != 0:
+                        raise Exception(f"Piper process error: {stderr.decode()}")
+                    
+                    return Response(content=stdout, media_type="audio/wav")
+                except Exception as e:
+                    logger.error(f"Piper synthesis failed: {e}")
+                    raise HTTPException(status_code=500, detail=f"All TTS engines failed. Piper Error: {str(e)}")
                 
     except Exception as e:
         logger.error(f"TTS Failure: {str(e)}")
