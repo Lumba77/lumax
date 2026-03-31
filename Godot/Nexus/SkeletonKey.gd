@@ -503,7 +503,8 @@ func _setup_debug_window():
 	
 	# EYE LEVEL POSITIONING
 	_debug_window.position = Vector3(0, 1.4, -2.5) 
-	_debug_window.visible = _debug_visible # SYNC WITH STATE
+	_debug_window.visible = false # Forcibly hide by default as requested
+	_debug_visible = false
 
 func _setup_privacy_drapery():
 	_privacy_curtains = Node3D.new(); _privacy_curtains.name = "PrivacyDrapery"; add_child(_privacy_curtains)
