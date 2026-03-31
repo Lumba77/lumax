@@ -1191,8 +1191,12 @@ func _stop_recording_flow():
 func _toggle_haptic_wand_mode():
 	_haptic_mode_active = !_haptic_mode_active
 	_show_user_notification("HAPTICS", "Pulse Engine: " + ("WAND" if _haptic_mode_active else "GHOST"), Color.CYAN)
-	if _haptic_wand_left: _haptic_wand_left.visible = _haptic_mode_active
-	if _haptic_wand_right: _haptic_wand_right.visible = _haptic_mode_active
+	if _haptic_wand_left: 
+		_haptic_wand_left.visible = _haptic_mode_active
+		if _haptic_wand_left.has_method("set_active"): _haptic_wand_left.call("set_active", _haptic_mode_active)
+	if _haptic_wand_right: 
+		_haptic_wand_right.visible = _haptic_mode_active
+		if _haptic_wand_right.has_method("set_active"): _haptic_wand_right.call("set_active", _haptic_mode_active)
 
 func _toggle_debug_window():
 	_debug_visible = !_debug_visible
