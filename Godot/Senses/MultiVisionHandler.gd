@@ -31,9 +31,12 @@ func _capture_from_viewport(vp: Viewport) -> Dictionary:
 		print("MultiVisionHandler: Viewport null.")
 		return {}
 		
-	# FORCE UPDATE to ensure it's not black
-	var prev_mode = vp.render_target_update_mode
-	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	# FORCE UPDATE to ensure it's not black (Only for SubViewports)
+	var is_sub = vp is SubViewport
+	var prev_mode = 0
+	if is_sub:
+		prev_mode = vp.render_target_update_mode
+		vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	
 	# Wait multiple frames for the GPU to actually render and transfer to CPU
 	await get_tree().process_frame 
@@ -46,8 +49,8 @@ func _capture_from_viewport(vp: Viewport) -> Dictionary:
 		return {}
 	
 	var img = texture.get_image()
-	# Revert mode if it was different
-	if prev_mode != SubViewport.UPDATE_ONCE:
+	# Revert mode if it was different (Only for SubViewports)
+	if is_sub and prev_mode != SubViewport.UPDATE_ONCE:
 		vp.render_target_update_mode = prev_mode
 		
 	if not img or img.is_empty(): 
