@@ -122,25 +122,29 @@ func _align_y_to_dir(dir: Vector3) -> Basis:
 
 func _handle_haptics():
 	if ray.is_colliding():
+		var col = ray.get_collider()
+		# ONLY vibrate on Avatar contact
+		var is_avatar = col.name == "Avatar" or (col.get_parent() and col.get_parent().name == "Body")
+		if not is_avatar: return
+
 		var point = ray.get_collision_point()
 		var dist = global_position.distance_to(point)
+		# actual_len is the current elastic distance to the wobbling tip
 		var actual_len = to_local(tip_position).length()
 		
-		var pressure = 1.0 - (dist / actual_len)
-		if pressure > 0:
+		# Elastic pressure: How much the wand is 'bent' against the object
+		var pressure = clamp(1.0 - (dist / actual_len), 0.0, 1.0)
+		
+		if pressure > 0.01:
 			var pulse = pressure * vibration_intensity
-			# USE BOTH HAPTIC PATHS FOR RELIABILITY
+			# Quest 3 Haptics
 			if controller.has_method("trigger_haptic_pulse"):
-				controller.trigger_haptic_pulse("haptic", 100.0, pulse, 0.1, 0)
+				controller.trigger_haptic_pulse("haptic", 100.0, pulse, 0.05, 0)
 			
-			glow_material.emission_energy_multiplier = 2.0 + (pressure * 4.0)
+			glow_material.emission_energy_multiplier = 2.0 + (pressure * 10.0)
 			
-			# Trigger Tactile Nerve
-			var col = ray.get_collider()
-			if col and col.has_method("apply_tactile_pressure"):
+			# Trigger Tactile Nerve for Jen to 'feel' it
+			if col.has_method("apply_tactile_pressure"):
 				col.apply_tactile_pressure(point, pressure, vibration_intensity)
 	else:
-		if vibration_intensity > 0.1:
-			if controller.has_method("trigger_haptic_pulse"):
-				controller.trigger_haptic_pulse("haptic", 20.0, vibration_intensity * 0.1, 0.1, 0)
 		glow_material.emission_energy_multiplier = 2.0
