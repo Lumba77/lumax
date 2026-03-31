@@ -24,6 +24,7 @@ var _is_recording = false
 var _prev_menu = false
 var _prev_x = false
 var _prev_a = false
+var _chord_active = false
 var _prev_y = false
 var _prev_l = false
 var _prev_r = false
@@ -975,14 +976,24 @@ func _poll_xr_inputs(_delta):
 		if Engine.get_frames_drawn() % 60 == 0:
 			LogMaster.log_info("QUEST VOICE: Still recording... Button state: " + str(r_b))
 
-	# --- A (Right): User POV Capture ---
+	# --- Chorded Input: X+A (System Check) ---
+	if l_x and r_a:
+		if not _chord_active:
+			_on_system_check_requested()
+			_chord_active = true
+	elif not l_x and not r_a:
+		_chord_active = false
+
+	# --- A (Right): User POV Capture (On Release, if not chorded) ---
 	if not r_a and _prev_a:
-		_capture_and_send_vision("USER_POV")
+		if not _chord_active:
+			_capture_and_send_vision("USER_POV")
 	_prev_a = r_a
 
-	# --- X (Left): Debug Toggle ---
+	# --- X (Left): Debug Toggle (On Release, if not chorded) ---
 	if not l_x and _prev_x:
-		_toggle_debug_window()
+		if not _chord_active:
+			_toggle_debug_window()
 	_prev_x = l_x
 
 	# --- Menu (Left): Toggle WebUI ---
