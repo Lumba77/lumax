@@ -313,14 +313,17 @@ func _capture_jen_pov() -> Texture2D:
 
 func _init_mind_and_body():
 	_mind_node = get_node_or_null("Mind")
-	# Don't force hide yet, let the first frame render the texture
+	if _mind_node:
+		_mind_node.visible = false # Start hidden as requested
+		_ui_visible = false
 	
 	# INITIAL MANIFESTATION: 
-	# Ensure Jen is visible and framed even before UI is toggled
+	# Place Jen directly in front of the user (1.2m away)
 	var jen_body = get_node_or_null("Body")
 	if jen_body:
 		jen_body.visible = true
-		jen_body.position = Vector3(0.7, 0, -1.5) # 1.5m Forward, 0.7m Right
+		jen_body.position = Vector3(0, 0, -1.2) 
+		# Rotation is handled in _setup_ambience
 
 	# WELCOME NOTIFICATION
 	_show_user_notification("LUMAX", "SYSTEM ONLINE", Color.CYAN)
@@ -527,7 +530,7 @@ func _setup_ambience():
 		# If the node is already at the correct position, don't force it to stay in one spot
 		# This allows for autonomous movement and better scene persistence
 		if jen_root.position.is_zero_approx():
-			jen_root.position = Vector3(0.7, 0, -1.5) 
+			jen_root.position = Vector3(0, 0, -1.2) # Directly in front
 			
 		var avatar_node = jen_root.get_node_or_null("Avatar")
 		if not avatar_node:
