@@ -296,11 +296,20 @@ func _unhandled_input(event: InputEvent):
 			_capture_and_send_vision("USER_POV")
 
 func _capture_user_pov() -> Texture2D:
-	# Mock capture for now: Using actual viewport or camera
-	return load("res://Art/user_pov_placeholder.png") if FileAccess.file_exists("res://Art/user_pov_placeholder.png") else null
+	var vp = get_tree().root.find_child("UserVisionViewport", true, false)
+	if vp:
+		if vp.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
+			vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		return vp.get_texture()
+	return null
 
 func _capture_jen_pov() -> Texture2D:
-	return load("res://Art/jen_pov_placeholder.png") if FileAccess.file_exists("res://Art/jen_pov_placeholder.png") else null
+	var vp = get_tree().root.find_child("VisionViewport", true, false)
+	if vp:
+		if vp.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
+			vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		return vp.get_texture()
+	return null
 
 func _init_mind_and_body():
 	_mind_node = get_node_or_null("Mind")
