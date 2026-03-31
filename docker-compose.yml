@@ -24,7 +24,7 @@ services:
       - OLLAMA_HOST=http://host.docker.internal:11434
       - STT_SERVICE_URL=http://lumax_ears:8001/stt
       - TTS_SERVICE_URL=http://lumax_mouth:8002/tts
-      - TTS_ENGINE=CHATTERBOX
+      - TTS_ENGINE=TURBO
       - LUMAX_MODEL_PATH=/app/models/Mind/Cognition/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k.gguf
     networks:
       - lumax_local
@@ -70,6 +70,7 @@ services:
     volumes:
       - ./Backend/Mind:/app/mind
       - ./Backend/Body:/app/body
+      - /d/VR_AI_Forge_Data/models/Body/Mouth/Speech/tts-piper-amy/en/en_US/amy/medium:/app/models/Mouth
     environment:
       - MODE=MOUTH
     networks:
@@ -88,7 +89,9 @@ services:
               count: all
               capabilities: [gpu]
     volumes:
-      - /d/VR_AI_Forge_Data/models/Chatterbox:/models
+      - /d/VR_AI_Forge_Data/models/Chatterbox/models--lucataco--xtts-v2:/app/data/models--lucataco--xtts-v2
+    environment:
+      - TTS_HOME=/app/data
     networks:
       - lumax_local
 
@@ -109,7 +112,7 @@ services:
               count: all
               capabilities: [gpu]
     volumes:
-      - /d/VR_AI_Forge_Data/models/ChatterboxTurbo:/app/models
+      - /d/VR_AI_Forge_Data/models/Body/Mouth/Speech/XTTSv2-Streaming-ONNX:/app/models
     networks:
       - lumax_local
 

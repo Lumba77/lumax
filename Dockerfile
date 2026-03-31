@@ -4,7 +4,8 @@ WORKDIR /app
 COPY requirements_lumax.txt .
 # Install main requirements using the existing environment from donor
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install -r requirements_lumax.txt
+    python -m pip install -r requirements_lumax.txt \
+    && python -m pip install pypinyin jieba unidecode num2words cutlet hangul_romanize jamo g2pkk mecab-python3 unidic-lite
 
 # Install llama-cpp-python with CUDA support using PRE-BUILT WHEELS to save user data
 RUN --mount=type=cache,target=/root/.cache/pip \

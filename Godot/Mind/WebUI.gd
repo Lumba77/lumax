@@ -714,7 +714,8 @@ func _on_quick_setting_pressed(setting: String):
 			low_vram_toggled.emit()
 
 func add_message(who: String, text: String):
-	var color = "#00f3ff" if who.begins_with("YOU") or who == "USER" or who == "ME" else "#ff007f"
+	var who_upper = who.to_upper()
+	var color = "#00f3ff" if who_upper.contains("YOU") or who_upper == "USER" or who_upper == "ME" else "#ff007f"
 	if not chat_log: return
 	
 	chat_log.append_text("\n[color=" + color + "][b]" + who + ":[/b][/color] ")

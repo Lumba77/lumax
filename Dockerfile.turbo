@@ -1,15 +1,7 @@
-FROM lumax-runner as lumax-turbo
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+FROM lumax_soul:mega-patched as lumax-turbo
 
 WORKDIR /app
-
-# Turbo dependencies are now in requirements_lumax.txt (inherited from lumax-runner)
-# We just need to copy the server script.
 COPY ./Backend/Body/chatterbox_turbo_server.py /app/main.py
 
-EXPOSE 8005
-
-CMD ["python", "main.py"]
+ENTRYPOINT ["python"]
+CMD ["main.py"]
