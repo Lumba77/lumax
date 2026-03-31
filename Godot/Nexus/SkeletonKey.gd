@@ -172,11 +172,7 @@ func _ready():
 	_aural = get_node_or_null("Senses/AuralAwareness")
 	if not _aural: _aural = find_child("Aural*", true, false)
 	
-	# FOOLPROOF DEBUG HUD
-	var debug_point = Node3D.new(); debug_point.name = "FoolproofDebugHUD"; add_child(debug_point)
-	_debug_log_display = Label3D.new(); _debug_log_display.text = "LUMAX BOOTING..."; _debug_log_display.font_size = 32; _debug_log_display.outline_modulate = Color.BLACK; debug_point.add_child(_debug_log_display)
-	debug_point.position = Vector3(0, 1.2, -0.8) # Floating in front of face
-	
+	# FOOLPROOF DEBUG HUD REMOVED FOR CLEANLINESS
 	print("LUMAX DBG: SkeletonKey initializing services...")
 	print("LUMAX DBG:   - Soul (Synapse): ", _synapse != null)
 	print("LUMAX DBG:   - Senses (Aural): ", _aural != null)
