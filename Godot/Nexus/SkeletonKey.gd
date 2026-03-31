@@ -601,12 +601,31 @@ func _setup_user_vision():
 func _setup_jen_vision(jen_node: Node3D):
 	if not jen_node: return
 	
-	# Attach to the rotating Avatar mesh, not the static Body root
-	var true_body = jen_node.get_node_or_null("Avatar")
-	if not true_body: true_body = jen_node
+	# Find the skeleton to attach to the head bone
+	var skeleton = jen_node.find_child("Skeleton3D", true, false)
+	if not skeleton: skeleton = jen_node.find_child("*Skeleton*", true, false)
 	
-	var anchor = Node3D.new(); anchor.name = "JenVisionAnchor"; true_body.add_child(anchor)
-	anchor.position = Vector3(0, 1.45, 0.45) # Further forward to avoid seeing her own nose/hair
+	var anchor: Node3D = null
+	if skeleton:
+		var bone_name = "Head"
+		if skeleton.find_bone(bone_name) == -1: bone_name = "head"
+		if skeleton.find_bone(bone_name) == -1: bone_name = "Neck"
+		
+		if skeleton.find_bone(bone_name) != -1:
+			anchor = BoneAttachment3D.new()
+			anchor.name = "JenVisionAnchor"
+			anchor.bone_name = bone_name
+			skeleton.add_child(anchor)
+			print("LUMAX: Vision anchored to bone: ", bone_name)
+	
+	if not anchor:
+		# Fallback to standard offset if no skeleton/bone found
+		anchor = Node3D.new(); anchor.name = "JenVisionAnchor"; jen_node.add_child(anchor)
+		anchor.position = Vector3(0, 1.45, 0.45)
+		print("LUMAX: Vision anchored to static offset (Skeleton not found).")
+	else:
+		# Offset from the bone center to the eyes/front of face
+		anchor.position = Vector3(0, 0.1, 0.2) 
 	
 	var vp = SubViewport.new(); vp.name = "VisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
