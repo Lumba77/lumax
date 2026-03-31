@@ -189,10 +189,6 @@ func _ready():
 	_scan_for_animations()
 	_setup_wall_screens()
 
-	if LogMaster:
-		LogMaster.log_added.connect(_on_log_added)
-		_update_debug_log()
-
 	var interface = XRServer.find_interface("OpenXR")
 	if interface and interface.initialize():
 		print("LUMAX: OpenXR Initialized SUCCESS.")
@@ -209,6 +205,11 @@ func _ready():
 	_setup_arm_panel()
 	_setup_privacy_drapery()
 	_setup_debug_window()
+
+	if LogMaster:
+		if not LogMaster.is_connected("log_added", _on_log_added):
+			LogMaster.log_added.connect(_on_log_added)
+		_update_debug_log()
 
 	_sync_quest_spatial_map()
 	
@@ -1494,7 +1495,7 @@ func _on_log_added(_msg: String, _type: String):
 	_update_debug_log()
 
 func _update_debug_log():
-	if not _debug_log_display:
+	if not is_instance_valid(_debug_log_display):
 		return
 		
 	var logs = LogMaster.get_logs()
