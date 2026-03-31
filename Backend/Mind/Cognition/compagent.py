@@ -321,6 +321,17 @@ async def handle_compagent_request(request: CompagentRequest):
     global redis_memory, vector_memory
     session_id = request.session_id or "default_user"
 
+    # 0. Quick check for empty input to prevent repetitive "thinking" phrases
+    if not request.input or request.input.strip() == "":
+        logger.warning("Soul: Empty input received. Ignoring to prevent generic repetition.")
+        return JSONResponse({
+            "response": "",
+            "thought": "I'm waiting for Daniel to speak...",
+            "audio": "",
+            "image_b64": "",
+            "mode": engine.engine_type
+        })
+
     # 1. Unified Image/Vision Pipeline
     vision_text = "The room is calm."
     active_images = []

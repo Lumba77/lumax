@@ -214,7 +214,8 @@ func _request_local_summary(raw_log: String) -> void:
 	var headers = ["Content-Type: application/json"]
 	var payload = {
 		"input": "Summarize strictly for the Cloud Director:\n" + raw_log,
-		"channel": "summary" # Forces OLLAMA Local + Sanitizer Prompt
+		"channel": "summary", # Forces OLLAMA Local + Sanitizer Prompt
+		"skip_features": true
 	}
 	
 	var err = http.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
@@ -280,7 +281,8 @@ func _send_director_request(input_text: String, audio_b64: String = "", forced_i
 	var payload = {
 		"input": input_text,
 		"channel": "director", # Forces GEMINI Cloud
-		"mode": "logic"
+		"mode": "logic",
+		"skip_features": true
 	}
 	
 	if not images.is_empty():

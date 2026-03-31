@@ -1458,36 +1458,56 @@ func _show_jen_notification(jen_text: String, jen_color: Color = Color.WHITE): _
 func _push_indicator(hub: Node3D, display_text: String, display_color: Color, is_arm: bool):
 	if not hub: return
 	var row_height: float = 0.03 if is_arm else 0.08
-	for child in hub.get_children(): if child is Label3D: var move = create_tween(); move.tween_property(child, "position:y", child.position.y + row_height, 0.4).set_trans(Tween.TRANS_CUBIC)
-	var label = Label3D.new(); label.text = display_text; label.modulate = display_color; label.outline_modulate = Color.BLACK
+	for child in hub.get_children():
+		if child is Label3D:
+			var move = create_tween()
+			move.tween_property(child, "position:y", child.position.y + row_height, 0.4).set_trans(Tween.TRANS_CUBIC)
+	
+	var label = Label3D.new()
+	label.text = display_text
+	label.modulate = display_color
+	label.outline_modulate = Color.BLACK
 	label.font_size = int(14 if is_arm else 32)
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED; hub.add_child(label); var fade = create_tween(); fade.tween_interval(2.0 if is_arm else 4.0); fade.tween_property(label, "modulate:a", 0.0, 1.0); fade.tween_callback(label.queue_free)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	hub.add_child(label)
+	
+	var fade = create_tween()
+	fade.tween_interval(2.0 if is_arm else 4.0)
+	fade.tween_property(label, "modulate:a", 0.0, 1.0)
+	fade.tween_callback(label.queue_free)
 
 func _trigger_visual_capture(source: String):
-	var vision_handler = get_node_or_null("MultiVisionHandler"); if not vision_handler: return
+	var vision_handler = get_node_or_null("MultiVisionHandler")
+	if not vision_handler: return
+	
 	var image_data = {}
 	if source == "JEN_POV":
 		var vp = get_node_or_null("WallAnchor/VisionViewport")
 		if vp and vp is SubViewport:
-			vp.render_target_update_mode = SubViewport.UPDATE_ONCE as SubViewport.UpdateMode
+			vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 			await get_tree().process_frame
 			await get_tree().process_frame
 			image_data = await vision_handler._capture_jen_pov()
-	if not image_data.is_empty() and _director: _director.call("_send_director_request", _director.get("DIRECTOR_SYSTEM_PROMPT") + "\n\nCapture: " + source, "", [image_data])
+			
+	if not image_data.is_empty() and _director:
+		var sys_prompt = _director.get("DIRECTOR_SYSTEM_PROMPT")
+		_director.call("_send_director_request", sys_prompt + "\n\nCapture: " + source, "", [image_data])
+
 func _on_log_added(_msg: String, _type: String):
 	_update_debug_log()
 
 func _update_debug_log():
-	if not _debug_log_display: return
+	if not _debug_log_display:
+		return
+		
 	var logs = LogMaster.get_logs()
 	var log_text = ""
-	# Get last 10 logs and strip BBCode for Label3D
+	# Get last 15 logs and strip BBCode for Label3D
 	var start = max(0, logs.size() - 15)
 	for i in range(start, logs.size()):
 		var line = logs[i]
 		# Crude BBCode strip
 		line = line.replace("[color=green]", "").replace("[color=red]", "").replace("[color=cyan]", "").replace("[color=yellow]", "").replace("[color=white]", "").replace("[/color]", "")
 		log_text += line + "\n"
+	
 	_debug_log_display.text = log_text
-_debug_log_display.text = log_text
-g_text
