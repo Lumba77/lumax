@@ -500,6 +500,7 @@ func _show_manifest_placeholder(type: String):
 		
 		# Viewport / Output Display Area
 		var display_box = PanelContainer.new()
+		display_box.name = "DisplayBox"
 		display_box.custom_minimum_size = Vector2(0, 250)
 		var db_style = StyleBoxFlat.new(); db_style.bg_color = Color(0,0,0,0.5); db_style.border_width_bottom = 2; db_style.border_color = Color(0, 0.9, 1.0, 0.4)
 		display_box.add_theme_stylebox_override("panel", db_style)
@@ -510,6 +511,7 @@ func _show_manifest_placeholder(type: String):
 		
 		# Prompt / Command Entry
 		var input_box = HBoxContainer.new()
+		input_box.name = "InputBox"
 		input_box.custom_minimum_size = Vector2(0, 45)
 		input_box.add_theme_constant_override("separation", 10)
 		panel.add_child(input_box)
@@ -527,6 +529,7 @@ func _show_manifest_placeholder(type: String):
 		
 		# Attachment / Hardware Strip
 		var bottom_strip = HBoxContainer.new()
+		bottom_strip.name = "BottomStrip"
 		panel.add_child(bottom_strip)
 		
 		var action_panel = GridContainer.new()
@@ -536,16 +539,17 @@ func _show_manifest_placeholder(type: String):
 		
 	panel.visible = true
 	var p_title = panel.get_node("TitleLabel")
-	var p_state = panel.get_node_or_null("PanelContainer/StateLabel")
-	var p_actions = panel.get_node_or_null("HBoxContainer/ActionsGrid")
-	var gen_btn = panel.get_node_or_null("HBoxContainer2/GenButton")
-	var p_input = panel.get_node_or_null("HBoxContainer2/PromptInput")
+	var p_state = panel.get_node_or_null("DisplayBox/StateLabel")
+	var p_actions = panel.get_node_or_null("BottomStrip/ActionsGrid")
+	var gen_btn = panel.get_node_or_null("InputBox/GenButton")
+	var p_input = panel.get_node_or_null("InputBox/PromptInput")
 	
 	p_title.text = "NEURAL EXTENSION // " + type
 	if p_state: p_state.text = "[ " + type + "_BUFFER_EMPTY ]"
 	
 	# Clear old buttons
-	for child in p_actions.get_children(): child.queue_free()
+	if p_actions:
+		for child in p_actions.get_children(): child.queue_free()
 	if get_node_or_null("ManifestBtnHelper"): get_node_or_null("ManifestBtnHelper").queue_free()
 	
 	var logic_helper = Node.new(); logic_helper.name = "ManifestBtnHelper"; add_child(logic_helper)
