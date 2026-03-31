@@ -1,4 +1,4 @@
-FROM lumax_core:latest as lumax-turbo
+FROM lumax-runner as lumax-turbo
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg && \
@@ -6,19 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install dependencies, avoiding upgrading torch/torchvision if already present in base
-RUN python -m pip install --no-cache-dir \
-    fastapi \
-    uvicorn \
-    numpy \
-    soundfile \
-    httpx \
-    --extra-index-url https://pypi.org/simple
-
-# Use --no-deps for chatterbox-tts to prevent it from overwriting the optimized torch from base
-RUN python -m pip install --no-cache-dir chatterbox-tts --no-deps
-
-# Copy the persistent server script from the host
+# Turbo dependencies are now in requirements_lumax.txt (inherited from lumax-runner)
+# We just need to copy the server script.
 COPY ./Backend/Body/chatterbox_turbo_server.py /app/main.py
 
 EXPOSE 8005

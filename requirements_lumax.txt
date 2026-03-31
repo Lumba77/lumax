@@ -21,6 +21,8 @@ aiohttp
 # Voice dependencies
 faster-whisper
 piper-tts
+librosa
+instruct
 
 compressed-tensors
 qwen-vl-utils

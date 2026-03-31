@@ -24,16 +24,25 @@ services:
       - OLLAMA_HOST=http://host.docker.internal:11434
       - STT_SERVICE_URL=http://lumax_ears:8001/stt
       - TTS_SERVICE_URL=http://lumax_mouth:8002/tts
-      - TTS_ENGINE=TURBO
+      - TTS_ENGINE=CHATTERBOX
       - LUMAX_MODEL_PATH=/app/models/Mind/Cognition/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k.gguf
     networks:
       - lumax_local
 
   lumax_ears:
-    image: vr-compagent-jen_unified_vessel:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: Lumax_Ears
     ports:
       - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command: ["python", "-c", "import sys; sys.path.insert(0, '/app/body'); import uvicorn; from body_interface import app; uvicorn.run(app, host='0.0.0.0', port=8001)"]
     volumes:
       - ./Backend/Mind:/app/mind
@@ -44,10 +53,19 @@ services:
       - lumax_local
 
   lumax_mouth:
-    image: vr-compagent-jen_unified_vessel:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: Lumax_Mouth
     ports:
       - "8002:8002"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command: ["python", "-c", "import sys; sys.path.insert(0, '/app/body'); import uvicorn; from body_interface import app; uvicorn.run(app, host='0.0.0.0', port=8002)"]
     volumes:
       - ./Backend/Mind:/app/mind
@@ -83,6 +101,8 @@ services:
       - "8005:8005"
     deploy:
       resources:
+        limits:
+          memory: 4G
         reservations:
           devices:
             - driver: nvidia
@@ -115,6 +135,20 @@ services:
     volumes:
       - ./Backend/Mind/Memory/redis.conf:/usr/local/etc/redis/redis.conf
       - ./Backend/Mind/Memory/data:/data
+    networks:
+      - lumax_local
+
+  lumax_web:
+    image: python:3.11-slim
+    container_name: Lumax_Web
+    ports:
+      - "8080:8080"
+    command: ["sh", "-c", "pip install fastapi uvicorn httpx && python /app/web_app.py"]
+    volumes:
+      - ./Backend/Body/web_app:/app
+    environment:
+      - SOUL_URL=http://lumax_soul:8000
+      - EARS_URL=http://lumax_ears:8001
     networks:
       - lumax_local
 

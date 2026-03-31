@@ -22,11 +22,13 @@ Write-Host "🎯 Target Device: $DEVICE_ID" -ForegroundColor Cyan
 $SourceGodot = "C:\Users\lumba\Program\Lumax\Godot"
 
 # 1. RESET THE AI BRIDGE (Quest -> PC)
-Write-Host "🔄 Resetting AI Communication Ports (STT/TTS)..." -ForegroundColor Yellow
+Write-Host "🔄 Resetting AI Communication Ports (STT/TTS/WEB)..." -ForegroundColor Yellow
 adb -s $DEVICE_ID reverse --remove-all
 adb -s $DEVICE_ID reverse tcp:8000 tcp:8000 # Soul
 adb -s $DEVICE_ID reverse tcp:8001 tcp:8001 # Ears
 adb -s $DEVICE_ID reverse tcp:8002 tcp:8002 # Mouth
+adb -s $DEVICE_ID reverse tcp:8005 tcp:8005 # Turbo TTS
+adb -s $DEVICE_ID reverse tcp:8080 tcp:8080 # Web Bridge
 adb -s $DEVICE_ID reverse tcp:6006 tcp:6006 # Console
 adb -s $DEVICE_ID reverse tcp:6007 tcp:6007 # Logs
 
@@ -48,6 +50,12 @@ function Push-Safe {
 # The Target "godot" now performs a CLEAN, FAST overwrite of the code + root project.
 if ($Target -eq "godot") {
     Write-Host "🚀 Running Core Logic Sync..." -ForegroundColor Green
+    Push-Safe $SourceGodot $QuestRoot
+} elseif ($Target -eq "clean") {
+    Write-Host "🧹 CLEANING QUEST CACHE (.godot & .import)..." -ForegroundColor Red
+    adb -s $DEVICE_ID shell rm -rf "$QuestRoot/.godot"
+    adb -s $DEVICE_ID shell rm -rf "$QuestRoot/.import"
+    Write-Host "🚀 Running Fresh Sync..." -ForegroundColor Green
     Push-Safe $SourceGodot $QuestRoot
 }
 

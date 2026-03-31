@@ -165,12 +165,32 @@ func _choose_favorite_place(floors: Array, seats: Array):
 	if jen: jen.global_position = target_pos + Vector3(0, 0.5, 0)
 
 func _ready():
-	_synapse = get_node_or_null("Soul/Synapse")
+	_synapse = get_node_or_null("Soul")
+	if not _synapse: _synapse = find_child("Soul", true, false)
+	if not _synapse: _synapse = find_child("Synapse", true, false)
+	
 	_aural = get_node_or_null("Senses/AuralAwareness")
+	if not _aural: _aural = find_child("Aural*", true, false)
+	
+	# FOOLPROOF DEBUG HUD
+	var debug_point = Node3D.new(); debug_point.name = "FoolproofDebugHUD"; add_child(debug_point)
+	_debug_log_display = Label3D.new(); _debug_log_display.text = "LUMAX BOOTING..."; _debug_log_display.font_size = 32; _debug_log_display.outline_modulate = Color.BLACK; debug_point.add_child(_debug_log_display)
+	debug_point.position = Vector3(0, 1.2, -0.8) # Floating in front of face
+	
+	print("LUMAX DBG: SkeletonKey initializing services...")
+	print("LUMAX DBG:   - Soul (Synapse): ", _synapse != null)
+	print("LUMAX DBG:   - Senses (Aural): ", _aural != null)
+	
+	# UNSILENCE ALL AUDIO BUSES FORCEFULLY (Except Record)
+	for i in range(AudioServer.bus_count):
+		if AudioServer.get_bus_name(i) == "Record":
+			continue
+		AudioServer.set_bus_mute(i, false)
+		AudioServer.set_bus_volume_db(i, 0.0)
 	
 	_setup_presence_cortex()
-	_setup_ambience() # This sets up _anim_player and _jen_avatar
-	_scan_for_animations() # Now safe to scan
+	_setup_ambience()
+	_scan_for_animations()
 	_setup_wall_screens()
 
 	if LogMaster:
@@ -179,21 +199,23 @@ func _ready():
 
 	var interface = XRServer.find_interface("OpenXR")
 	if interface and interface.initialize():
+		print("LUMAX: OpenXR Initialized SUCCESS.")
 		get_viewport().use_xr = true
 		get_viewport().transparent_bg = true 
 		if interface.has_method("is_passthrough_supported") and interface.is_passthrough_supported():
 			interface.start_passthrough()
+	else:
+		print("LUMAX ERR: Failed to initialize OpenXR! Switching to DESKTOP mode.")
+		get_viewport().use_xr = false
+		_setup_desktop_camera()
 	
 	_setup_ambience()
 	_setup_arm_panel()
 	_setup_privacy_drapery()
 	_setup_debug_window()
 
-
-	# Spatial Co-habitation: Sync Quest environment and define home
 	_sync_quest_spatial_map()
 	
-	# --- DECOUPLED INPUT INITIALIZATION ---
 	_left_hand = get_node_or_null("XROrigin3D/LeftHand")
 	_right_hand = get_node_or_null("XROrigin3D/RightHand")
 	
@@ -216,18 +238,64 @@ func _ready():
 				if gc is RayCast3D: _right_ray = gc; print("LUMAX DBG: Right Ray FOUND via deep scan!")
 	
 	# Setup Haptic Wands immediately so they aren't blocked by Jen's loading
-	var wand_script = load("res://Mind/HapticWand.gd")
-	if wand_script:
-		if _left_hand:
-			_haptic_wand_left = Node3D.new(); _haptic_wand_left.name = "HapticWand"; _haptic_wand_left.set_script(wand_script); _left_hand.add_child(_haptic_wand_left)
-			_haptic_wand_left.visible = _haptic_mode_active
-		if _right_hand:
-			_haptic_wand_right = Node3D.new(); _haptic_wand_right.name = "HapticWand"; _haptic_wand_right.set_script(wand_script); _right_hand.add_child(_haptic_wand_right)
-			_haptic_wand_right.visible = _haptic_mode_active
+	if DirAccess.dir_exists_absolute("res://addons/godot-xr-tools/"):
+		var wand_script = load("res://Mind/HapticWand.gd")
+		if wand_script:
+			if _left_hand:
+				_haptic_wand_left = Node3D.new(); _haptic_wand_left.name = "HapticWand"; _haptic_wand_left.set_script(wand_script); _left_hand.add_child(_haptic_wand_left)
+				_haptic_wand_left.visible = _haptic_mode_active
+			if _right_hand:
+				_haptic_wand_right = Node3D.new(); _haptic_wand_right.name = "HapticWand"; _haptic_wand_right.set_script(wand_script); _right_hand.add_child(_haptic_wand_right)
+				_haptic_wand_right.visible = _haptic_mode_active
+	else:
+		print("LUMAX: Skipping HapticWand setup (addons missing).")
 	
 	_init_mind_and_body()
 	print("LUMAX DBG: Presence Cortex Setup Start")
 	_setup_presence_cortex()
+
+func _setup_desktop_camera():
+	var origin = get_node_or_null("XROrigin3D")
+	if origin:
+		var cam = origin.get_node_or_null("XRCamera3D")
+		if cam:
+			# If it's an XRCamera3D, it might still work as a regular camera if use_xr is false,
+			# but let's ensure we have a standard perspective.
+			cam.current = true
+			print("LUMAX: Using XRCamera3D as fallback Desktop Camera.")
+		else:
+			var desktop_cam = Camera3D.new()
+			desktop_cam.name = "DesktopCamera"
+			desktop_cam.current = true
+			desktop_cam.position = Vector3(0, 1.6, 0)
+			origin.add_child(desktop_cam)
+			print("LUMAX: Manifested DesktopCamera.")
+
+func _unhandled_input(event: InputEvent):
+	# Desktop Keyboard Testing Support
+	if event is InputEventKey:
+		if event.is_action_pressed("ui_accept") or (event.keycode == KEY_ENTER and event.pressed):
+			# If UI is visible, let it handle text. If not, maybe just a ping?
+			pass
+		
+		# PTT via SPACE
+		if event.keycode == KEY_SPACE:
+			if event.pressed and not _is_recording:
+				_start_recording_flow()
+			elif not event.pressed and _is_recording:
+				_stop_recording_flow()
+		
+		# UI Toggle via M
+		if event.keycode == KEY_M and event.pressed:
+			_toggle_ui()
+			
+		# Debug Toggle via D
+		if event.keycode == KEY_D and event.pressed:
+			_toggle_debug_window()
+		
+		# Vision Capture via V
+		if event.keycode == KEY_V and event.pressed:
+			_capture_and_send_vision("USER_POV")
 
 func _capture_user_pov() -> Texture2D:
 	# Mock capture for now: Using actual viewport or camera
@@ -528,7 +596,7 @@ func _setup_jen_vision(jen_node: Node3D):
 	
 	var vp = SubViewport.new(); vp.name = "VisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
-	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	if vp is SubViewport: vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	vp.transparent_bg = false # Ensure we see the environment
 	
 	var cam = Camera3D.new(); cam.name = "VisionCamera"; vp.add_child(cam)
@@ -756,11 +824,10 @@ func _check_and_fix_texture(tex: Texture, owner_node: Node):
 			if p:
 				var vp = p.get_node_or_null("Viewport")
 				if not vp: vp = p.get_node_or_null("SubViewport")
-				if vp: 
+				if vp:
 					tex.viewport_path = owner_node.get_path_to(vp)
-					vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+					if vp is SubViewport: vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 					print("LUMAX: Repaired ViewportTexture for ", owner_node.name, " -> ", vp.name)
-
 # --- LIVE PROCESS ---
 
 func _process(_delta):
@@ -809,6 +876,14 @@ func _process_self_agency():
 func _poll_xr_inputs(_delta):
 	_left_hand = get_node_or_null("XROrigin3D/LeftHand")
 	_right_hand = get_node_or_null("XROrigin3D/RightHand")
+	var cam = get_viewport().get_camera_3d()
+	
+	# Update Foolproof HUD position
+	var debug_hud = get_node_or_null("FoolproofDebugHUD")
+	if debug_hud and cam:
+		debug_hud.global_position = cam.global_position + (-cam.global_transform.basis.z * 1.0)
+		debug_hud.look_at(cam.global_position, Vector3.UP)
+		debug_hud.rotate_y(PI)
 	
 	# Individual Grip Detection
 	var left_grip = false
@@ -816,6 +891,17 @@ func _poll_xr_inputs(_delta):
 	var right_grip = false
 	if _right_hand: right_grip = _right_hand.is_button_pressed("grip_click") or _right_hand.get_float("grip") > 0.6
 	
+	# DEBUG READOUT
+	if _debug_log_display:
+		var txt = "LUMAX XR STATUS:\n"
+		txt += "L-Hand: " + ("OK" if _left_hand else "MISSING") + "\n"
+		txt += "R-Hand: " + ("OK" if _right_hand else "MISSING") + "\n"
+		if _right_hand:
+			var b_btn = _right_hand.is_button_pressed("by_button") or _right_hand.is_button_pressed("secondary_button")
+			txt += "B-Button: " + ("PRESSED" if b_btn else "IDLE") + "\n"
+			txt += "A-Button: " + ("PRESSED" if _right_hand.is_button_pressed("ax_button") else "IDLE") + "\n"
+		_debug_log_display.text = txt
+
 	# 1. Double Grip -> Steering Toggle
 	if left_grip and right_grip:
 		if not _prev_steering_combo:
@@ -861,14 +947,18 @@ func _poll_xr_inputs(_delta):
 		# Reset chord lock only when BOTH are released
 		_prev_haptic_combo = false
 
+	if _right_hand:
+		for i in range(20): # Scan standard Godot button range
+			if _right_hand.is_button_pressed(str(i)):
+				LogMaster.log_info("QUEST RAW: Right Hand Button " + str(i) + " is PRESSED")
+	
 	# --- PTT (Right B) ---
-	if r_b and not _is_recording:
-		_is_recording = true
-		_recording_start_time = Time.get_ticks_msec()
-		if _aural: _aural.call("start_recording")
-		_show_user_notification("VOICE", "LISTENING...", Color.CYAN)
-		if is_instance_valid(_stt_status_label): _stt_status_label.text = "STT: LISTENING..."
-	elif not r_b and _is_recording:
+	if r_b:
+		if not _is_recording:
+			LogMaster.log_info("QUEST INPUT: Right B PRESSED (PTT START)")
+			_start_recording_flow()
+	elif _is_recording:
+		LogMaster.log_info("QUEST INPUT: Right B RELEASED (PTT STOP)")
 		_stop_recording_flow()
 	
 	# --- Jen POV Capture (Left Y) ---
@@ -876,10 +966,16 @@ func _poll_xr_inputs(_delta):
 		_capture_and_send_vision("JEN_POV")
 	_prev_y = l_y
 	
-	# Safety Timeout (15s)
-	if _is_recording and (Time.get_ticks_msec() - _recording_start_time > 15000):
+	# Safety Timeout (30s)
+	if _is_recording and (Time.get_ticks_msec() - _recording_start_time > 30000):
+		LogMaster.log_info("QUEST VOICE: Safety Timeout Triggered (30s)")
 		_stop_recording_flow()
 		_show_user_notification("VOICE", "TIMEOUT", Color.RED)
+	
+	if _is_recording:
+		# Add a very spammy but useful check to see if we are still holding
+		if Engine.get_frames_drawn() % 60 == 0:
+			LogMaster.log_info("QUEST VOICE: Still recording... Button state: " + str(r_b))
 
 	# --- A (Right): User POV Capture ---
 	if not r_a and _prev_a:
@@ -1309,16 +1405,30 @@ func _capture_and_send_vision(source: String):
 			_synapse.call("send_chat_message", msg, "text", b64)
 			_show_jen_notification("Analyzing perspective...", note_color)
 func _on_keyboard_text_changed(text: String): if _web_ui: _web_ui.call("update_buffer", text)
-func _on_tts_audio(buffer, sample_rate):
+func _on_tts_audio(buffer: PackedByteArray, sample_rate: float):
 	if _tts_player:
-		print("LUMAX TTS: Playing audio buffer (size: ", buffer.size(), ", rate: ", sample_rate, ")")
+		# Boost volume and ensure it's audible at distance
+		_tts_player.unit_size = 50.0 # High audible range
+		_tts_player.max_db = 10.0    # Serious volume boost
+		_tts_player.bus = &"Master"
+		_tts_player.panning_strength = 0.5 # Less spatial falloff for Jen's voice
+		
+		# Standard WAV Header Strip (44 bytes) for Godot 4 compatibility
+		var pcm_data = buffer
+		if buffer.size() > 44 and buffer[0] == 82 and buffer[1] == 73: # "RI" (First 2 bytes of RIFF)
+			pcm_data = buffer.slice(44)
+			print("LUMAX TTS: Stripped 44-byte WAV header.")
+		
+		var sr = sample_rate if sample_rate > 0 else 24000.0
+		print("LUMAX TTS: Playing audio (PCM size: ", pcm_data.size(), ", rate: ", sr, ")")
+		
 		var stream = AudioStreamWAV.new()
-		stream.data = buffer
+		stream.data = pcm_data
 		stream.format = AudioStreamWAV.FORMAT_16_BITS
-		stream.mix_rate = int(sample_rate)
+		stream.mix_rate = int(sr)
 		_tts_player.stream = stream
 		_tts_player.play()
-		if LogMaster: LogMaster.log_info("TTS: Playing " + str(buffer.size()) + " bytes @ " + str(sample_rate) + "Hz")
+		if LogMaster: LogMaster.log_info("TTS: Manifested Voice @ " + str(sr) + "Hz")
 
 func _on_stt_transcription(text: String):
 	var clean_text = text.strip_edges()
@@ -1330,7 +1440,7 @@ func _on_stt_transcription(text: String):
 	if is_instance_valid(_stt_status_label):
 		_stt_status_label.text = "STT: IDLE"
 		_stt_status_label.modulate = Color.GRAY
-	if _web_ui: _web_ui.call("add_message", "YOU (Voice)", clean_text)
+	if _web_ui: _web_ui.call("add_message", "YOU", clean_text)
 	if _synapse: _synapse.call("send_chat_message", clean_text)
 	if LogMaster: LogMaster.log_info("STT Transcription: " + clean_text)
 	_show_jen_notification("Analyzing voice command...", Color.YELLOW)
@@ -1358,7 +1468,7 @@ func _trigger_visual_capture(source: String):
 	var image_data = {}
 	if source == "JEN_POV":
 		var vp = get_node_or_null("WallAnchor/VisionViewport")
-		if vp:
+		if vp and vp is SubViewport:
 			vp.render_target_update_mode = SubViewport.UPDATE_ONCE as SubViewport.UpdateMode
 			await get_tree().process_frame
 			await get_tree().process_frame
@@ -1379,3 +1489,5 @@ func _update_debug_log():
 		line = line.replace("[color=green]", "").replace("[color=red]", "").replace("[color=cyan]", "").replace("[color=yellow]", "").replace("[color=white]", "").replace("[/color]", "")
 		log_text += line + "\n"
 	_debug_log_display.text = log_text
+_debug_log_display.text = log_text
+g_text

@@ -55,12 +55,12 @@ func _ready():
 func _test_server_connectivity():
 	if _is_searching: return
 	_is_searching = true
-	var url = "http://" + server_ip + ":8005/health"
+	var url = "http://" + server_ip + ":8000/health"
 	var test_req = HTTPRequest.new(); add_child(test_req)
 	test_req.request_completed.connect(func(_r, c, _h, _b): 
 		_is_searching = false
 		if c != 200: 
-			print("LUMAX: AI Bridge (127.0.0.1) UNREACHABLE. Check ADB reverse.")
+			print("LUMAX: AI Bridge (127.0.0.1:8000) UNREACHABLE. Check ADB reverse.")
 		else:
 			print("LUMAX: AI Bridge ACTIVE at " + server_ip)
 		test_req.queue_free()
@@ -75,7 +75,7 @@ func rotate_ip_manual():
 	return server_ip
 
 func send_chat_message(text: String, channel: String = "text", image_base64: String = ""):
-	var url = "http://" + server_ip + ":8005/compagent"
+	var url = "http://" + server_ip + ":8000/compagent"
 	var headers = ["Content-Type: application/json"]
 	var payload = {"input": text, "channel": channel}
 	if image_base64 != "":
@@ -86,10 +86,11 @@ func send_chat_message(text: String, channel: String = "text", image_base64: Str
 	_soul_request.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
 
 func send_voice_to_stt(data: PackedByteArray):
+	print("LUMAX: send_voice_to_stt() called. Data size: ", data.size())
 	var b64 = Marshalls.raw_to_base64(data)
 	var url = "http://" + server_ip + ":8001/stt"
 	var payload = {"audio_base64": b64}
-	print("LUMAX: Sending STT request to: ", url, " (Size: ", data.size(), " bytes)")
+	print("LUMAX: Sending STT request to: ", url)
 	var err = _stt_request.request(url, ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(payload))
 	if err != OK:
 		print("LUMAX ERR: Failed to initiate STT request. Error code: ", err)

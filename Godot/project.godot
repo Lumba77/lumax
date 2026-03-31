@@ -27,7 +27,7 @@ XRToolsRumbleManager="*uid://by853dk86g1qw"
 
 [debug]
 
-settings/stdout/print_fps=true
+settings/stdout/print_fps=false
 settings/logging/enable_file_logging=true
 settings/logging/enable_file_logging.pc=true
 settings/logging/enable_file_logging.mobile=true
@@ -41,7 +41,7 @@ enabled=PackedStringArray("res://addons/vrm/plugin.cfg", "res://addons/mixamo_an
 [rendering]
 
 viewport/transparent_background=true
-renderer/quality/driver_name="Forward+"
+renderer/quality/driver_name="Mobile"
 vrs/mode.mobile=0
 anti_aliasing/quality/msaa_3d.mobile=0
 

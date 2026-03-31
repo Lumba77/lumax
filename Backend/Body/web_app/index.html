@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LUMAX // SOUL OS NEXUS</title>
+    <link rel="manifest" href="/manifest.json">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;700&family=Share+Tech+Mono&display=swap');
 
@@ -536,9 +537,9 @@
                     <div class="msg msg-sys"><span class="sender-tag">SYSTEM</span> Awaiting neural handshake...</div>
                 </div>
                 <div class="input-container">
+                    <button id="mic-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; padding:0 10px;">🎙️</button>
                     <input type="text" id="chat-input" placeholder="Transmit thoughts to Jen..." autocomplete="off">
-                    <div style="font-family:'Share Tech Mono'; font-size:0.7rem; color:var(--neon-blue);">[PTT_READY]
-                    </div>
+                    <div id="ptt-label" style="font-family:'Share Tech Mono'; font-size:0.7rem; color:var(--neon-blue);">[PTT_READY]</div>
                 </div>
             </div>
 
@@ -675,6 +676,18 @@
     <script>
         let isAuthorized = false;
 
+        async function callApi(endpoint, method = 'GET', body = null) {
+            try {
+                const options = { method, headers: { 'Content-Type': 'application/json' } };
+                if (body) options.body = JSON.stringify(body);
+                const resp = await fetch('/api/' + endpoint, options);
+                return await resp.json();
+            } catch (err) {
+                console.error("API Error (" + endpoint + "):", err);
+                return null;
+            }
+        }
+
         function finishAuth() {
             isAuthorized = true;
             document.getElementById('auth-modal').style.display = 'none';
@@ -684,11 +697,14 @@
 
             // Unlock nav items
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('locked'));
+            
+            // Start heartbeats
+            startHeartbeats();
         }
 
         function finishConsent() {
             document.getElementById('consent-modal').style.display = 'none';
-            addMessage('SYSTEM', 'Neural link synchronized. Google AI Services Online.');
+            addMessage('SYSTEM', 'Neural link synchronized. Lumax Web Bridge Online.');
         }
 
         function switchTab(tabId) {
@@ -705,9 +721,6 @@
             if (targetView) targetView.classList.add('active');
 
             addMessage('SYSTEM', `NAVIGATED TO ${tabId} PROTOCOL`);
-
-            // Notify Godot
-            if (window.godot) window.godot.switch_tab(tabId);
         }
 
         function addMessage(who, text) {
@@ -720,25 +733,43 @@
             tag.innerText = who;
 
             msg.appendChild(tag);
-            msg.innerHTML += text;
+            
+            // Handle [img] tags from backend
+            let cleanText = text.replace(/\[img=(.*?)\](.*?)\[\/img\]/g, '<img src="$2" style="max-width:300px">');
+            msg.innerHTML += cleanText;
 
             feed.appendChild(msg);
             feed.scrollTop = feed.scrollHeight;
         }
 
-        function updateKnob(knob, val) {
+        async function sendChat(text) {
+            const data = await callApi('chat', 'POST', { input: text, vessel: 'WEB_BRIDGE' });
+            if (data && data.response) {
+                addMessage('LUMAX', data.response);
+                if (data.audio) {
+                    playAudio(data.audio);
+                }
+            }
+        }
+
+        function playAudio(base64) {
+            const audio = new Audio("data:audio/wav;base64," + base64);
+            audio.play();
+        }
+
+        async function updateKnob(knob, val) {
             document.getElementById('val-' + knob).innerText = val;
-            if (window.godot) window.godot.update_soul_parameter(knob, parseFloat(val));
+            await callApi('update_soul', 'POST', { [knob]: parseFloat(val) });
         }
 
         function toggleAgency(type, active) {
             addMessage('SYSTEM', `AGENCY_${type.toUpperCase()}: ${active ? 'ENABLED' : 'DISABLED'}`);
-            if (window.godot) window.godot.toggle_agency(type, active);
+            // Logic handled by Soul backend on compagent calls
         }
 
         function setArchetype(type) {
             addMessage('SYSTEM', `PRIMING ARCHETYPE: ${type}`);
-            if (window.godot) window.godot.set_archetype(type);
+            // Logic handled by Soul backend
         }
 
         function triggerDiagnostic() {
@@ -747,15 +778,26 @@
             log.innerHTML += `[${now}] Triggering deep diagnostic...<br>`;
             log.innerHTML += `[${now}] Scanning neural weights... OK<br>`;
             updateNucleusChart(Math.random() * 100);
-            if (window.godot) window.godot.run_diagnostic();
+        }
+
+        async function startHeartbeats() {
+            setInterval(async () => {
+                const vitals = await callApi('vitals');
+                if (vitals) {
+                    if (document.getElementById('sent-vram')) document.getElementById('sent-vram').innerText = vitals.VRAM_BUFF || "7.2GB";
+                    if (document.getElementById('sent-sync')) document.getElementById('sent-sync').innerText = vitals.CORE_SYNC || "98%";
+                    if (document.getElementById('vram-stat')) document.getElementById('vram-stat').innerText = vitals.VRAM_BUFF || "-- MB";
+                }
+            }, 5000);
         }
 
         // Nucleus History Chart
         const chartCanvas = document.getElementById('nucleus-chart');
-        const ctx = chartCanvas.getContext('2d');
+        const ctx = chartCanvas ? chartCanvas.getContext('2d') : null;
         let history = new Array(50).fill(0);
 
         function updateNucleusChart(val) {
+            if (!ctx) return;
             history.push(val);
             if (history.length > 50) history.shift();
 
@@ -777,14 +819,14 @@
             ctx.shadowColor = '#00f3ff';
         }
 
-        // Interaction bridge for Godot
+        // Interaction bridge
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const input = document.getElementById('chat-input');
                 const text = input.value.trim();
                 if (text) {
                     addMessage('YOU', text);
-                    if (window.godot) window.godot.send_chat(text);
+                    sendChat(text);
                     input.value = '';
                 }
             }
@@ -806,5 +848,72 @@
 
     </script>
 </body>
+
+</html>y>
+
+</html>UFF || "-- MB";
+                }
+            }, 5000);
+        }
+
+        // Nucleus History Chart
+        const chartCanvas = document.getElementById('nucleus-chart');
+        const ctx = chartCanvas ? chartCanvas.getContext('2d') : null;
+        let history = new Array(50).fill(0);
+
+        function updateNucleusChart(val) {
+            if (!ctx) return;
+            history.push(val);
+            if (history.length > 50) history.shift();
+
+            ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            const step = chartCanvas.width / 50;
+            for (let i = 0; i < 50; i++) {
+                const x = i * step;
+                const y = chartCanvas.height - (history[i] / 100 * chartCanvas.height);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Subtle glow
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#00f3ff';
+        }
+
+        // Interaction bridge
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const input = document.getElementById('chat-input');
+                const text = input.value.trim();
+                if (text) {
+                    addMessage('YOU', text);
+                    sendChat(text);
+                    input.value = '';
+                }
+            }
+        });
+
+        // Telemetry bars animation
+        const tele = document.getElementById('tele-bars');
+        for (let i = 0; i < 15; i++) {
+            const bar = document.createElement('div');
+            bar.className = 't-bar';
+            tele.appendChild(bar);
+        }
+        setInterval(() => {
+            document.querySelectorAll('.t-bar').forEach(b => {
+                b.style.height = (20 + Math.random() * 80) + '%';
+                b.style.opacity = 0.3 + Math.random() * 0.7;
+            });
+        }, 120);
+
+    </script>
+</body>
+
+</html>y>
 
 </html>

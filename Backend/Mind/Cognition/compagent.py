@@ -232,6 +232,10 @@ class OpenAIChatCompletionRequest(BaseModel):
 async def handle_root():
     return "Ollama is running"
 
+@app.get("/health")
+async def handle_health():
+    return {"status": "online", "engine": "GGUF"}
+
 @app.get("/api/ps")
 async def handle_ollama_ps():
     return {"models": [{"name": "jen-soul:latest"}]}
@@ -384,8 +388,11 @@ async def handle_compagent_request(request: CompagentRequest):
             
             try:
                 async with httpx.AsyncClient(timeout=120.0) as hc:
-                    tts_resp = await hc.post(TTS_SERVICE_URL, json={"text": text})
+                    tts_payload = {"text": text, "engine": TTS_ENGINE, "voice": request.voice}
+                    logger.info(f"Soul: Requesting TTS with engine {TTS_ENGINE}...")
+                    tts_resp = await hc.post(TTS_SERVICE_URL, json=tts_payload)
                     audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
+                    logger.info(f"Soul: TTS synthesis SUCCESS ({len(audio_b64)} bytes).")
             except Exception as e: 
                 logger.error(f"TTS Request FAILED: {e}", exc_info=True)
                 audio_b64 = ""
