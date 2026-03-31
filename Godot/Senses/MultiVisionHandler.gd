@@ -49,6 +49,15 @@ func _capture_from_viewport(vp: Viewport) -> Dictionary:
 		return {}
 	
 	var img = texture.get_image()
+	
+	# Fallback for Main Viewport (often black in XR when using get_texture)
+	if not is_sub and (not img or img.is_empty()):
+		print("MultiVisionHandler: Viewport texture failed, trying DisplayServer screenshot...")
+		img = get_viewport().get_texture().get_image() # Try again once
+		if not img or img.is_empty():
+			# This is the 'nuclear' option for some Android devices
+			pass 
+
 	# Revert mode if it was different (Only for SubViewports)
 	if is_sub and prev_mode != SubViewport.UPDATE_ONCE:
 		vp.render_target_update_mode = prev_mode
@@ -69,7 +78,9 @@ func _capture_from_viewport(vp: Viewport) -> Dictionary:
 
 
 func _capture_player_pov() -> Dictionary:
-	var vp = get_viewport()
+	var vp = get_tree().root.find_child("UserVisionViewport", true, false)
+	if not vp: vp = get_viewport() # Fallback
+	
 	var result = await _capture_from_viewport(vp)
 	if not result.is_empty():
 		result["source"] = "PLAYER_POV"

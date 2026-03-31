@@ -579,9 +579,23 @@ func _setup_ambience():
 		
 		# --- DYNAMIC VISION SYSTEM ---
 		_setup_jen_vision(jen_root)
+		_setup_user_vision()
 		
 		# INITIALIZE UI INDEPENDENTLY OF ANIMATIONS
 		_setup_presence_cortex()
+
+func _setup_user_vision():
+	var cam = get_node_or_null("XROrigin3D/XRCamera3D")
+	if not cam: return
+	
+	var anchor = Node3D.new(); anchor.name = "UserVisionAnchor"; cam.add_child(anchor)
+	var vp = SubViewport.new(); vp.name = "UserVisionViewport"; anchor.add_child(vp)
+	vp.size = Vector2(1024, 1024)
+	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	
+	var capture_cam = Camera3D.new(); capture_cam.name = "UserCaptureCamera"; vp.add_child(capture_cam)
+	capture_cam.far = 100.0
+	print("LUMAX: User Vision Cortex (v1.0) initialized for snapshots.")
 
 func _setup_jen_vision(jen_node: Node3D):
 	if not jen_node: return
