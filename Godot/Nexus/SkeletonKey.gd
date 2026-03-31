@@ -592,6 +592,7 @@ func _setup_user_vision():
 	var vp = SubViewport.new(); vp.name = "UserVisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
 	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	vp.world_3d = get_viewport().find_world_3d() # SHARE THE WORLD
 	
 	var capture_cam = Camera3D.new(); capture_cam.name = "UserCaptureCamera"; vp.add_child(capture_cam)
 	capture_cam.far = 100.0
@@ -609,7 +610,9 @@ func _setup_jen_vision(jen_node: Node3D):
 	
 	var vp = SubViewport.new(); vp.name = "VisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
-	if vp is SubViewport: vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	if vp is SubViewport: 
+		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		vp.world_3d = get_viewport().find_world_3d() # SHARE THE WORLD
 	vp.transparent_bg = false # Ensure we see the environment
 	
 	var cam = Camera3D.new(); cam.name = "VisionCamera"; vp.add_child(cam)
