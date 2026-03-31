@@ -591,7 +591,7 @@ func _setup_jen_vision(jen_node: Node3D):
 	if not true_body: true_body = jen_node
 	
 	var anchor = Node3D.new(); anchor.name = "JenVisionAnchor"; true_body.add_child(anchor)
-	anchor.position = Vector3(0, 1.6, 0.1) # Approx eye level
+	anchor.position = Vector3(0, 1.45, 0.25) # Slightly in front of face to avoid inner-mesh clipping
 	
 	var vp = SubViewport.new(); vp.name = "VisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
@@ -600,11 +600,12 @@ func _setup_jen_vision(jen_node: Node3D):
 	
 	var cam = Camera3D.new(); cam.name = "VisionCamera"; vp.add_child(cam)
 	cam.far = 100.0
-	# Angle Jen's camera toward the User — use safe offset to avoid colinear look_at crash
-	var look_target = Vector3(0.3, 1.5, 0)  # Slight horizontal offset prevents colinear error
-	if cam.global_position.distance_to(look_target) > 0.01:
-		cam.look_at(look_target, Vector3.UP)
-	print("LUMAX: Jen's Visual Cortex (v1.9) aligned to User Headset.")
+	# Look forward relative to the avatar (Jen's forward is +Z or -Z depending on export, but standard is forward)
+	cam.position = Vector3.ZERO
+	cam.rotation = Vector3.ZERO 
+	# Point slightly down to see the user or room better
+	cam.rotate_x(deg_to_rad(-10))
+	print("LUMAX: Jen's Visual Cortex (v2.0) aligned to forward gaze.")
 
 var _personality_presets: Dictionary = {}
 
