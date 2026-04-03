@@ -130,6 +130,13 @@ func set_skeleton_key(sk: Node3D):
 			_setup_animation_graph()
 
 func _on_tactile_impulse(region: String, _intensity: float, _pos: Vector3, is_gentle: bool):
+	# Handle specialized sensory events (like TICKLE from grabbing)
+	if "TICKLE" in region:
+		_gaze_mode = GazeMode.PLAYER
+		_gaze_timer = 5.0
+		play_animation(&"laugh")
+		return
+
 	# Jen 'reacts' to being touched
 	if is_gentle:
 		if "EROGENOUS" in region:

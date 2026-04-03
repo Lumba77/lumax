@@ -1167,7 +1167,9 @@ func _try_grab_object(hand: XRController3D):
 			_grabbed_node = get_node_or_null("Body")
 			_grabbed_hand = hand
 			_grabbed_offset = hand.global_position.distance_to(_grabbed_node.global_position)
-			if _synapse: _synapse.call("inject_sensory_event", "The user gently pulls you closer. Relax and accommodate them.")
+			if _synapse: 
+				_synapse.call("inject_sensory_event", "[SENSORY: TICKLE | REGION: STOMACH | STATE: JOYFUL] Daniel is lifting and moving me! It feels ticklish and fun.")
+				_show_jen_notification("Tee-hee! That tickles!", Color.HOT_PINK)
 
 func _release_object():
 	_grabbed_node = null
