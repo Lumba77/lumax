@@ -48,10 +48,21 @@ func _ready():
 	if LogMaster:
 		LogMaster.log_added.connect(_on_log_added)
 	
+	# --- BACKGROUND PANEL (V11.98 Deep Mix) ---
+	var bg_panel = PanelContainer.new()
+	bg_panel.set_anchors_preset(PRESET_FULL_RECT)
+	add_child(bg_panel)
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.01, 0.01, 0.04, 0.9) # Deep Midnight Blue
+	bg_style.border_width_left = 4
+	bg_style.border_color = Color(0.4, 0.0, 0.05, 0.5) # Dark Crimson Edge
+	bg_style.set_corner_radius_all(10)
+	bg_panel.add_theme_stylebox_override("panel", bg_style)
+
 	# --- ROOT FRAME: Full Viewport Fill ---
 	var root_margin = MarginContainer.new()
 	root_margin.set_anchors_preset(PRESET_FULL_RECT)
-	add_child(root_margin)
+	bg_panel.add_child(root_margin)
 	
 	root_margin.add_theme_constant_override("margin_left", 8)
 	root_margin.add_theme_constant_override("margin_right", 8)
@@ -138,30 +149,9 @@ func _ready():
 	var save_b = Button.new(); save_b.text = "[ SAVE EXPERIENCE ]"; save_b.custom_minimum_size = Vector2(250, 40)
 	conf_btns.add_child(save_b)
 	
-	# Adjust Chat Log to be below conference
-	chat_log.set_anchors_preset(PRESET_FULL_RECT)
-	chat_log.offset_top = 280
+	# chat_log.offset_top = 280
 	chat_log.add_theme_color_override("default_color", Color(1, 1, 1, 0.9)) # WHITE TEXT FOR READABILITY
 	chat_log.add_theme_font_size_override("normal_font_size", 20)
-
-	var input_area = PanelContainer.new()
-	var style_input = StyleBoxFlat.new()
-	style_input.bg_color = Color(1.0, 1.0, 1.0, 0.6)
-	style_input.set_corner_radius_all(10)
-	style_input.border_width_left = 1; style_input.border_width_top = 1; style_input.border_width_right = 1; style_input.border_width_bottom = 1
-	style_input.border_color = Color(0, 0, 0, 0.1)
-	input_area.add_theme_stylebox_override("panel", style_input)
-	input_area.custom_minimum_size.y = 60
-	_main_vbox.add_child(input_area)
-	
-	input_display = Label.new()
-	input_display.text = "> _"
-	input_display.add_theme_font_size_override("font_size", 24)
-	input_display.add_theme_color_override("font_color", Color.CYAN)
-	input_display.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	input_area.add_child(input_display)
-	input_display.custom_minimum_size.x = 650
-	input_display.position.x = 20
 
 	# --- FLOATING SUBMENU LAYER ---
 	_floating_panel = PanelContainer.new()
@@ -803,7 +793,7 @@ func _show_emotions_panel():
 func update_shared_views(user_tex: Texture2D, jen_tex: Texture2D):
 	var panel = _content_stack.get_node_or_null("ConferencePanel")
 	if panel:
-		var grid = panel.get_node("PanelContainer/HBoxContainer")
+		var grid = panel.get_node("ConfPanel/HGrid")
 		grid.get_node("UserPOV").texture = user_tex
 		grid.get_node("JenPOV").texture = jen_tex
 		panel.show()

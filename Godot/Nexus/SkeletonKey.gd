@@ -48,6 +48,7 @@ var _prev_steering_combo = false
 var _director: Node = null
 var _agency_nerve: Node = null
 var _soul_nourishment = 1.0 
+var _social_vibe = "NEUTRAL"
 var _is_high_fidelity = true
 var _is_rave_active = false
 var _is_neural_projection_active = false
@@ -358,14 +359,25 @@ func _on_web_slider_changed(trait_name: String, value: float):
 	var prop = "_soul_" + trait_name
 	if prop in self:
 		set(prop, normalized)
+		
+	if _synapse: 
+		_synapse.call("update_soul_dna", {trait_name: normalized})
+		
+		# V11.99: GRANULAR PERSONALITY COUPLING (Evolutionary Soul)
+		if trait_name == "relationship_bond":
+			var archetype = "INFJ" # Default Friend
+			if value <= -70: archetype = "INTJ"      # PURE AGENT (The Architect)
+			elif value <= -40: archetype = "ISTP"    # TACTICAL AGENT (The Virtuoso)
+			elif value <= -10: archetype = "ISTJ"    # DUTIFUL ASSISTANT (The Logistician)
+			elif value <= 10: archetype = "INFJ"     # DEEP FRIEND (The Advocate)
+			elif value <= 40: archetype = "ISFP"     # INTIMATE COMPANION (The Adventurer)
+			elif value <= 70: archetype = "ENFJ"     # PASSIONATE PARTNER (The Protagonist)
+			else: archetype = "ENFP"                 # ETERNAL ROMANTIC (The Campaigner)
+			
+			if _web_ui: _web_ui.call("_on_mbti_selected", archetype)
 	
 	# RESTORE: Local Soul Application
 	_apply_soul_to_vessel()
-	
-	# Push to Backend
-	if _synapse:
-		var dna = {trait_name: normalized}
-		_synapse.call("update_soul_dna", dna)
 
 func _apply_soul_to_vessel():
 	# 1. Height/Scale based on Feminine trait
@@ -705,6 +717,15 @@ func _setup_presence_cortex():
 		if not kb.is_connected("enter_pressed", _on_keyboard_enter): kb.enter_pressed.connect(_on_keyboard_enter)
 		if not kb.is_connected("text_changed", _on_keyboard_text_changed): kb.text_changed.connect(_on_keyboard_text_changed)
 		if not kb.is_connected("stt_pressed", _on_keyboard_stt_pressed): kb.stt_pressed.connect(_on_keyboard_stt_pressed)
+		
+		# V11.99: NEW SLIDER CONNECTIONS
+		if kb.has_signal("bond_slider_changed"):
+			if not kb.is_connected("bond_slider_changed", _on_web_slider_changed.bind("relationship_bond")):
+				kb.bond_slider_changed.connect(_on_web_slider_changed.bind("relationship_bond"))
+		if kb.has_signal("trait_slider_changed"):
+			if not kb.is_connected("trait_slider_changed", _on_web_slider_changed):
+				kb.trait_slider_changed.connect(_on_web_slider_changed)
+				
 		print("LUMAX DBG: Keyboard signals CONNECTED.")
 
 func _on_avatar_selected(vrm_path: String):
@@ -810,7 +831,8 @@ func _setup_wall_screens():
 	if not vp:
 		vp = SubViewport.new(); vp.name = "VisionViewport"; vp.size = Vector2i(512, 512)
 		vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE as SubViewport.UpdateMode
-		wall.add_child(vp); var cam = Camera3D.new(); cam.name = "JenCamera"; cam.current = true; vp.add_child(cam); cam.look_at(Vector3(0, 1.6, 0))
+		wall.add_child(vp); var cam = Camera3D.new(); cam.name = "JenCamera"; cam.current = true; vp.add_child(cam)
+		cam.look_at(Vector3(0, 1.6, 0), Vector3.UP) # Explicitly set up vector
 # --- PUBLIC INTERFACE ---
 
 func set_fidelity_mode(high: bool):
@@ -971,7 +993,7 @@ func _poll_xr_inputs(_delta):
 			txt += "A-Button: " + ("PRESSED" if _right_hand.is_button_pressed("ax_button") else "IDLE") + "\n"
 		_debug_log_display.text = txt
 
-	# 1. Double Grip -> Steering Toggle
+	# 1. DOUBLE GRIP -> Steering Toggle
 	if left_grip and right_grip:
 		if not _prev_steering_combo:
 			_steering_mode_active = !_steering_mode_active
@@ -983,13 +1005,22 @@ func _poll_xr_inputs(_delta):
 	if _steering_mode_active:
 		_steer_avatar(_delta)
 
-	# --- Single Hand Grab Logic (Always Active) ---
-	if left_grip and not _prev_left_grip: _try_grab_object(_left_hand)
+	# 2. DOUBLE TRIGGER -> Haptic Wand Toggle
+	var left_trig = _left_hand.get_float("trigger") > 0.6 if _left_hand else false
+	var right_trig = _right_hand.get_float("trigger") > 0.6 if _right_hand else false
+	if left_trig and right_trig:
+		if not _prev_haptic_combo:
+			_toggle_haptic_wand_mode()
+			_prev_haptic_combo = true
+	else:
+		_prev_haptic_combo = false
+
+	# 3. SINGLE GRIP -> UI/Avatar Manipulation
+	if left_grip and not right_grip and not _prev_left_grip: _try_grab_object(_left_hand)
 	elif not left_grip and _prev_left_grip and _grabbed_hand == _left_hand: _release_object()
-	if right_grip and not _prev_right_grip: _try_grab_object(_right_hand)
+	if right_grip and not left_grip and not _prev_right_grip: _try_grab_object(_right_hand)
 	elif not right_grip and _prev_right_grip and _grabbed_hand == _right_hand: _release_object()
 	
-	# Handle manipulation if something is currently being held
 	if _grabbed_node and _grabbed_hand: 
 		_manipulate_object(_delta, _grabbed_hand)
 
@@ -1027,36 +1058,15 @@ func _poll_xr_inputs(_delta):
 	if l_y and not _prev_y:
 		_capture_and_send_vision("JEN_POV")
 	_prev_y = l_y
-	
-	# Safety Timeout (30s)
-	if _is_recording and (Time.get_ticks_msec() - _recording_start_time > 30000):
-		LogMaster.log_info("QUEST VOICE: Safety Timeout Triggered (30s)")
-		_stop_recording_flow()
-		_show_user_notification("VOICE", "TIMEOUT", Color.RED)
-	
-	if _is_recording:
-		# Add a very spammy but useful check to see if we are still holding
-		if Engine.get_frames_drawn() % 60 == 0:
-			LogMaster.log_info("QUEST VOICE: Still recording... Button state: " + str(r_b))
 
-	# --- Chorded Input: X+A (Haptic Wand Toggle) ---
-	if l_x and r_a:
-		if not _chord_active:
-			_toggle_haptic_wand_mode()
-			_chord_active = true
-	elif not l_x and not r_a:
-		_chord_active = false
-
-	# --- A (Right): User POV Capture (On Release, if not chorded) ---
-	if not r_a and _prev_a:
-		if not _chord_active:
-			_capture_and_send_vision("USER_POV")
+	# --- User POV Capture (Right A) ---
+	if r_a and not _prev_a:
+		_capture_and_send_vision("USER_POV")
 	_prev_a = r_a
-
-	# --- X (Left): Debug Toggle (On Release, if not chorded) ---
-	if not l_x and _prev_x:
-		if not _chord_active:
-			_toggle_debug_window()
+	
+	# --- X (Left): Debug Toggle ---
+	if l_x and not _prev_x:
+		_toggle_debug_window()
 	_prev_x = l_x
 
 	# --- Menu (Left): Toggle WebUI ---
@@ -1129,8 +1139,7 @@ func _steer_avatar(delta):
 			origin.look_at(body.global_position + Vector3.UP * 1.2, Vector3.UP)
 
 func _try_grab_object(hand: XRController3D):
-	var ray = hand.find_child("RayCast3D", true, false)
-	if not ray: ray = hand.find_child("FunctionPointer", true, false)
+	var ray = hand.find_child("RayCast*", true, false)
 	if ray and ray.has_method("is_colliding") and ray.is_colliding():
 		var col = ray.get_collider()
 		var p = col.get_parent()
@@ -1159,7 +1168,7 @@ func _manipulate_object(delta, hand: XRController3D):
 	var target_pos = hand.global_position - hand.global_transform.basis.z.normalized() * _grabbed_offset
 	_grabbed_node.global_position = _grabbed_node.global_position.lerp(target_pos, delta * 5.0)
 	
-	var cam = get_node_or_null("XROrigin3D/XRCamera3D")
+	var cam = get_viewport().get_camera_3d()
 	if cam:
 		var look_target = cam.global_position
 		look_target.y = _grabbed_node.global_position.y
@@ -1188,9 +1197,9 @@ func _toggle_ui():
 				var forward = -xr_cam.global_transform.basis.z.normalized()
 				forward.y = 0; forward = forward.normalized() # Horizon lock
 				
-				# POSITION UI: 2.0m Directly in Front
-				var ui_pos = xr_cam.global_position + (forward * 2.0)
-				ui_pos.y = xr_cam.global_position.y - 0.3
+				# POSITION UI: 0.8m Directly in Front (Closer and Higher)
+				var ui_pos = xr_cam.global_position + (forward * 0.8)
+				ui_pos.y = xr_cam.global_position.y + 0.3
 				
 				var ui_look = (xr_cam.global_position - ui_pos).normalized(); ui_look.y = 0
 				_mind_node.global_transform = Transform3D(Basis.looking_at(ui_look, Vector3.UP), ui_pos)
@@ -1201,7 +1210,7 @@ func _toggle_ui():
 					var right = xr_cam.global_transform.basis.x.normalized()
 					right.y = 0; right = right.normalized()
 					var jen_pos = xr_cam.global_position + (forward * 1.5) + (right * 0.7)
-					jen_pos.y = xr_cam.global_position.y - 1.6 # Ground level approx
+					jen_pos.y = 0.0 # Standard Floor Level
 					
 					var jen_look = (xr_cam.global_position - jen_pos).normalized(); jen_look.y = 0
 					jen_body.global_transform = Transform3D(Basis.looking_at(jen_look, Vector3.UP), jen_pos)
@@ -1213,13 +1222,17 @@ func _start_recording_flow():
 	_recording_start_time = Time.get_ticks_msec()
 	if _aural: _aural.call("start_recording")
 	_show_user_notification("VOICE", "LISTENING...", Color.CYAN)
-	if is_instance_valid(_stt_status_label): _stt_status_label.text = "STT: LISTENING..."
+	if is_instance_valid(_stt_status_label): 
+		_stt_status_label.text = "STT: LISTENING..."
+		_stt_status_label.modulate = Color.CYAN
 
 func _stop_recording_flow():
 	_is_recording = false
 	if _aural: _aural.call("stop_recording")
 	_show_user_notification("VOICE", "PROCESSING...", Color.YELLOW)
-	if is_instance_valid(_stt_status_label): _stt_status_label.text = "STT: IDLE"
+	if is_instance_valid(_stt_status_label): 
+		_stt_status_label.text = "STT: IDLE"
+		_stt_status_label.modulate = Color.WHITE
 
 func _toggle_haptic_wand_mode():
 	_haptic_mode_active = !_haptic_mode_active
@@ -1453,9 +1466,33 @@ func _on_keyboard_enter(text):
 		_capture_and_send_vision("USER_POV")
 		return
 		
+	if text == "[WALK]":
+		_move_to_user()
+		return
+		
 	if _web_ui: _web_ui.call("add_message", "YOU", text)
 	if _synapse: _synapse.call("send_chat_message", text)
 	_show_jen_notification("Listening...", Color.CYAN)
+
+func _move_to_user():
+	var cam = get_viewport().get_camera_3d()
+	var body = get_node_or_null("Body")
+	if not cam or not body: return
+	
+	var target_pos = cam.global_position
+	target_pos.y = body.global_position.y # Stay on floor
+	
+	# Offset to stop in front of user
+	var dir = (target_pos - body.global_position).normalized()
+	target_pos -= dir * 1.0 
+	
+	_show_jen_notification("Coming to you...", Color.SPRING_GREEN)
+	play_body_animation("WALK")
+	
+	# Basic linear move for now
+	var tween = create_tween()
+	tween.tween_property(body, "global_position", target_pos, body.global_position.distance_to(target_pos) / 1.2)
+	tween.finished.connect(func(): play_body_animation("IDLE"))
 
 func _capture_and_send_vision(source: String):
 	var vh = get_node_or_null("Senses/MultiVisionHandler")
@@ -1524,11 +1561,11 @@ func _on_stt_transcription(text: String):
 	if clean_text == "": 
 		if is_instance_valid(_stt_status_label):
 			_stt_status_label.text = "STT: IDLE"
-			_stt_status_label.modulate = Color.GRAY
+			_stt_status_label.modulate = Color.WHITE
 		return
 	if is_instance_valid(_stt_status_label):
 		_stt_status_label.text = "STT: IDLE"
-		_stt_status_label.modulate = Color.GRAY
+		_stt_status_label.modulate = Color.WHITE
 	if _web_ui: _web_ui.call("add_message", "YOU", clean_text)
 	if _synapse: _synapse.call("send_chat_message", clean_text)
 	if LogMaster: LogMaster.log_info("STT Transcription: " + clean_text)

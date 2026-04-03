@@ -105,7 +105,7 @@ func _ready() -> void:
 	if _animation_tree:
 		_animation_tree.active = false
 		
-	_is_locked = true
+	_is_locked = false
 	call_deferred("play_greeting")
 
 func set_skeleton_key(sk: Node3D):
@@ -115,8 +115,8 @@ func set_skeleton_key(sk: Node3D):
 	if tactile and sk.get("_synapse"):
 		tactile.soul_synapse = sk.get("_synapse")
 		# Connect haptic feedback to behavior
-		if not tactile.is_connected("impulse_felt", _on_tactile_impulse):
-			tactile.impulse_felt.connect(_on_tactile_impulse)
+		if not tactile.is_connected("touch_perceived", _on_tactile_impulse):
+			tactile.touch_perceived.connect(_on_tactile_impulse)
 	
 	if not player_camera:
 		player_camera = get_viewport().get_camera_3d()
@@ -126,13 +126,13 @@ func set_skeleton_key(sk: Node3D):
 		if _animation_tree:
 			_setup_animation_graph()
 
-func _on_tactile_impulse(msg: String):
+func _on_tactile_impulse(region: String, _intensity: float, _pos: Vector3):
 	# Jen 'reacts' to being touched
-	if "HEAD" in msg:
+	if region == "HEAD":
 		_gaze_mode = GazeMode.PLAYER
 		_gaze_timer = 5.0 # Look at player when head is touched
 		if randf() < 0.3: play_animation(&"happy")
-	elif "BODY" in msg:
+	elif region == "BODY_GENERAL":
 		if shyness_intensity > 0.5:
 			_gaze_mode = GazeMode.SHY
 			_gaze_timer = 2.0
@@ -220,27 +220,61 @@ func _update_gaze_strategy():
 		_gaze_timer = randf_range(2.0, 6.0)
 		_gaze_target_pos = avatar_node.global_position + Vector3(randf_range(-4,4), randf_range(0.5, 2.5), -4)
 
+func _process_blink(delta: float) -> void:
+	_blink_timer += delta
+	if not _is_blinking:
+		if _blink_timer >= _next_blink_time:
+			_is_blinking = true
+			_blink_timer = 0.0
+	else:
+		if _blink_timer <= _blink_duration:
+			_set_blend_shape("Fcl_EYE_Close", 1.0)
+		else:
+			_set_blend_shape("Fcl_EYE_Close", 0.0)
+			_is_blinking = false
+			_next_blink_time = randf_range(2.0, 6.0)
+			_blink_timer = 0.0
+
+func _set_blend_shape(shape_name: String, value: float) -> void:
+	if not _face_mesh or not _face_mesh.mesh: return
+	var idx = _face_mesh.find_blend_shape_by_name(shape_name)
+	if idx == -1: idx = _face_mesh.find_blend_shape_by_name(shape_name.to_lower())
+	if idx != -1: _face_mesh.set_blend_shape_value(idx, value)
+
+func play_greeting():
+	if clip_paths.has(&"wave"):
+		play_animation(&"wave")
+
 func play_animation(anim_name: StringName) -> void:
 	if not _animation_tree: return
-	_animation_tree.active = true 
+	
+	var state_name = String(anim_name).capitalize().replace(" ", "")
 	var playback = _animation_tree.get("parameters/playback")
-	if playback: 
-		var state_name = String(anim_name).capitalize().replace(" ", "")
+	
+	if playback and _animation_tree.tree_root and _animation_tree.tree_root.has_node(state_name):
+		_animation_tree.active = true 
 		if playback.get_current_node() != state_name:
 			playback.travel(state_name)
+	else:
+		# Fallback to direct AnimationPlayer
+		_animation_tree.active = false
+		if _body_animation_player.has_animation(String(_LIB_NAME) + "/" + String(anim_name)):
+			_body_animation_player.play(String(_LIB_NAME) + "/" + String(anim_name), 0.5)
 
 func _setup_references() -> void:
 	_animation_tree = get_node_or_null("AnimationTree")
 	_body_animation_player = avatar_node.find_child("AnimationPlayer", true, false)
 	if not _body_animation_player: _body_animation_player = avatar_node.find_child("*AnimationPlayer*", true, false)
 	
-	if not _skeleton:
-		_skeleton = avatar_node.find_child("GeneralSkeleton", true, false)
-		if not _skeleton: _skeleton = avatar_node.find_child("*Skeleton*", true, false)
+	_skeleton = avatar_node.find_child("GeneralSkeleton", true, false)
+	if not _skeleton: _skeleton = avatar_node.find_child("*Skeleton*", true, false)
 			
 	if _skeleton: 
 		_head_bone_idx = _skeleton.find_bone("Head")
 		if _head_bone_idx == -1: _head_bone_idx = _skeleton.find_bone("head")
+	
+	_face_mesh = null
+	_find_face_mesh(avatar_node)
 	
 	if _body_animation_player: _setup_animation_library()
 
@@ -262,46 +296,62 @@ func _setup_animation_library() -> void:
 	force_resanitize_animations()
 
 func force_resanitize_animations() -> void:
-	if not _body_animation_player: return
-	var skel = avatar_node.find_child("Skeleton3D", true, false)
-	if not skel: skel = avatar_node.find_child("*Skeleton*", true, false)
+	if not _body_animation_player or not avatar_node: return
+	var skel = _skeleton
 	if not skel: return
-	var skel_path = String(_body_animation_player.get_path_to(skel))
+	
+	# Get path relative to the AnimationPlayer's ROOT NODE
+	var anim_root_path = _body_animation_player.root_node
+	var anim_root = _body_animation_player.get_node(anim_root_path)
+	if not anim_root: return
+	
+	var skel_path = String(anim_root.get_path_to(skel))
+	
+	if LogMaster: LogMaster.log_info("ANIM_SYSTEM: Resanitizing tracks. Root=" + anim_root.name + " SkelPath=" + skel_path)
 	
 	for lib_name in _body_animation_player.get_animation_library_list():
 		var lib = _body_animation_player.get_animation_library(lib_name)
-		for anim_name in lib.get_animation_list():
+		var anim_list = lib.get_animation_list()
+		
+		for anim_name in anim_list:
 			var anim = lib.get_animation(anim_name)
-			if not anim or (anim.has_meta("lumax_skel_path") and anim.get_meta("lumax_skel_path") == skel_path): continue
+			if not anim: continue
+			
+			var changed = false
 			for i in range(anim.get_track_count()):
 				var old_path = String(anim.track_get_path(i))
 				for target in ["Skeleton3D", "GeneralSkeleton", "Armature"]:
 					if old_path.contains(target) and not old_path.begins_with(skel_path):
-						var parts = old_path.split(":"); var new_path = skel_path + (":" + parts[1] if parts.size() > 1 else "")
-						anim.track_set_path(i, NodePath(new_path)); break
-			anim.set_meta("lumax_skel_path", skel_path)
+						var parts = old_path.split(":")
+						var new_path = skel_path + (":" + parts[1] if parts.size() > 1 else "")
+						anim.track_set_path(i, NodePath(new_path))
+						changed = true
+						break
+			if changed:
+				if LogMaster and randf() < 0.01: # Log only occasionally to avoid spam
+					LogMaster.log_info("ANIM_SYSTEM: Re-aligned " + anim_name)
 
 func _setup_animation_graph() -> void:
+	if not _body_animation_player: return
 	var root = AnimationNodeStateMachine.new()
 	var lib = _body_animation_player.get_animation_library(_LIB_NAME)
 	
-	if lib.has_animation(&"idle"):
-		var locomotion = AnimationNodeAnimation.new(); locomotion.animation = _LIB_NAME + "/idle"
-		root.add_node("Locomotion", locomotion)
-	
-	# Future: Add BlendSpace1D for weight-shifting idles here
+	# Add standard locomotion and common interaction states
+	var states = ["idle", "wave", "happy", "sad", "walk", "run", "dance", "sit", "praying"]
+	for s in states:
+		if lib.has_animation(s):
+			var node = AnimationNodeAnimation.new()
+			node.animation = String(_LIB_NAME) + "/" + s
+			var state_name = s.capitalize().replace(" ", "")
+			root.add_node(state_name, node)
+			if s == "idle":
+				root.set_graph_offset(Vector2(0, 0)) # Standard center
 	
 	_animation_tree.tree_root = root
 	_animation_tree.anim_player = _animation_tree.get_path_to(_body_animation_player)
 	_animation_tree.active = false 
 	var playback = _animation_tree.get("parameters/playback")
-	if playback and root.has_node("Locomotion"): playback.start("Locomotion")
-
-func _set_blend_shape(shape_name: String, value: float) -> void:
-	if not _face_mesh or not _face_mesh.mesh: return
-	var idx = _face_mesh.find_blend_shape_by_name(shape_name)
-	if idx == -1: idx = _face_mesh.find_blend_shape_by_name(shape_name.to_lower())
-	if idx != -1: _face_mesh.set_blend_shape_value(idx, value)
+	if playback and root.has_node("Idle"): playback.start("Idle")
 
 func _find_face_mesh(node: Node) -> void:
 	if not node: return
