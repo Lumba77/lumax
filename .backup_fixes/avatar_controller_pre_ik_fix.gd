@@ -2,12 +2,11 @@ class_name AvatarController
 extends Node
 
 ## Implements Kinematic Character Controller with Mixamo Animation States.
-## ENHANCED: DYNAMIC IDLE, BEHAVIORAL FRAGMENTS, AND SENSORY AWARENESS.
+## ENHANCED: PUPPET LAYER (IK), STEERING, AND SENSORY AWARENESS.
 
 @export var avatar_node: Node3D
 @export var player_camera: Node3D
 @export var shyness_intensity: float = 0.3
-@export var steering_active: bool = false
 
 signal tts_playback_finished
 signal capture_requested(source: String)
@@ -50,13 +49,20 @@ var _skeleton: Skeleton3D
 var _head_bone_idx: int = -1
 var _face_mesh: MeshInstance3D
 
+# --- PUPPET LAYER (IK) ---
+var _ik_left_hand: SkeletonIK3D
+var _ik_right_hand: SkeletonIK3D
+var _target_l: Marker3D
+var _target_r: Marker3D
+var _ik_active: bool = false
+
 # --- NATURAL BEHAVIOR ENGINE ---
 var _blink_timer: float = 0.0
 var _next_blink_time: float = 3.0
 var _is_blinking: bool = false
 var _blink_duration: float = 0.1
 
-enum GazeMode { PLAYER, LOOK_AWAY, IDLE, SHY, INTERESTED }
+enum GazeMode { PLAYER, LOOK_AWAY, IDLE, SHY, INTERESTED, TRACK_TARGET }
 var _gaze_mode: int = GazeMode.PLAYER
 var _gaze_timer: float = 0.0
 var _gaze_target_pos: Vector3 = Vector3.ZERO
@@ -66,8 +72,7 @@ var _saccade_offset: Vector3 = Vector3.ZERO
 # --- DYNAMIC POSE ENGINE ---
 var _idle_variation_timer: float = 0.0
 var _procedural_sway: float = 0.0
-var _weight_shift: float = 0.0 # -1.0 to 1.0 (Left/Right leg)
-var _current_fragments: Array = [] # Active blended animation fragments
+var _weight_shift: float = 0.0 
 
 func _anim_key(anim: StringName) -> StringName:
 	return StringName("%s/%s" % [String(_LIB_NAME), String(anim)])
@@ -81,21 +86,21 @@ func _process(delta: float) -> void:
 	_process_natural_behavior(delta)
 	_process_lip_sync(delta)
 	_process_dynamic_pose(delta)
+	_update_ik_blending(delta)
 
 func _update_body_orientation(delta: float) -> void:
-	if steering_active: return # Don't fight manual steering
-	
 	var cam = get_viewport().get_camera_3d()
-	if not cam: return
+	if not cam or not player_camera: return
 	
-	var target_pos = cam.global_position
+	var target_pos = player_camera.global_position
 	target_pos.y = avatar_node.global_position.y
 	
 	var dir = (target_pos - avatar_node.global_position).normalized()
 	if dir.length_squared() > 0.01:
-		# Slower, more graceful rotation
 		var target_basis = Basis.looking_at(-dir, Vector3.UP)
-		avatar_node.global_transform.basis = avatar_node.global_transform.basis.slerp(target_basis, delta * 0.5)
+		var target_quat = target_basis.get_rotation_quaternion()
+		var current_quat = avatar_node.global_transform.basis.orthonormalized().get_rotation_quaternion()
+		avatar_node.global_transform.basis = Basis(current_quat.slerp(target_quat, delta * 0.5))
 
 func _ready() -> void:
 	if not avatar_node: 
@@ -105,10 +110,13 @@ func _ready() -> void:
 			
 	_setup_references()
 	
+	# Defer IK setup to avoid silent VR crashes on the first frame
+	get_tree().create_timer(1.0).timeout.connect(_setup_ik)
+	
 	if _animation_tree:
 		_animation_tree.active = false
 		
-	_is_locked = false
+	_is_locked = true
 	call_deferred("play_greeting")
 
 func set_skeleton_key(sk: Node3D):
@@ -117,9 +125,8 @@ func set_skeleton_key(sk: Node3D):
 	var tactile = get_node_or_null("TactileNerveNetwork")
 	if tactile and sk.get("_synapse"):
 		tactile.soul_synapse = sk.get("_synapse")
-		# Connect haptic feedback to behavior
-		if not tactile.is_connected("touch_perceived", _on_tactile_impulse):
-			tactile.touch_perceived.connect(_on_tactile_impulse)
+		if not tactile.is_connected("impulse_felt", _on_tactile_impulse):
+			tactile.impulse_felt.connect(_on_tactile_impulse)
 	
 	if not player_camera:
 		player_camera = get_viewport().get_camera_3d()
@@ -129,25 +136,15 @@ func set_skeleton_key(sk: Node3D):
 		if _animation_tree:
 			_setup_animation_graph()
 
-func _on_tactile_impulse(region: String, _intensity: float, _pos: Vector3, is_gentle: bool):
-	# Jen 'reacts' to being touched
-	if is_gentle:
-		if "EROGENOUS" in region:
-			_gaze_mode = GazeMode.PLAYER
-			_gaze_timer = 10.0 # Deep gaze
-			if randf() < 0.5: play_animation(&"happy")
-			else: play_animation(&"texting") # Simulates leaning in/closeness
-		elif region == "HEAD":
-			_gaze_mode = GazeMode.PLAYER
-			_gaze_timer = 5.0
-			play_animation(&"happy")
-	else:
-		# REACTION TO BRUTAL/FAST TOUCH
-		_gaze_mode = GazeMode.SHY
-		_gaze_timer = 3.0
-		if randf() < 0.4: play_animation(&"angry")
-		elif randf() < 0.7: play_animation(&"sad")
-		else: play_animation(&"look_around")
+func _on_tactile_impulse(region: String, _intensity: float, _pos: Vector3):
+	if region == "HEAD":
+		_gaze_mode = GazeMode.PLAYER
+		_gaze_timer = 5.0
+		if randf() < 0.3: play_animation(&"happy")
+	elif region == "CHEST" or region == "BODY_GENERAL":
+		if shyness_intensity > 0.5:
+			_gaze_mode = GazeMode.SHY
+			_gaze_timer = 2.0
 
 func _process_lip_sync(_delta: float) -> void:
 	if not _face_mesh: return
@@ -161,25 +158,32 @@ func _process_natural_behavior(delta: float) -> void:
 	_process_blink(delta)
 	if _skeleton: _process_eye_contact(delta)
 
+func _process_blink(delta: float) -> void:
+	if not _face_mesh: _find_face_mesh(avatar_node); if not _face_mesh: return
+	if not _is_blinking:
+		_blink_timer += delta; if _blink_timer >= _next_blink_time: _is_blinking = true; _blink_timer = 0.0; _next_blink_time = randf_range(2.0, 6.0)
+	else:
+		_blink_timer += delta; var weight = 0.0
+		if _blink_timer < _blink_duration * 0.5: weight = _blink_timer / (_blink_duration * 0.5)
+		elif _blink_timer < _blink_duration: weight = 1.0 - ((_blink_timer - _blink_duration * 0.5) / (_blink_duration * 0.5))
+		else: _is_blinking = false; _blink_timer = 0.0; weight = 0.0
+		_set_blend_shape("Fcl_EYE_Close", weight)
+
 func _process_dynamic_pose(delta: float) -> void:
-	# 1. Procedural Breathing/Sway
 	_procedural_sway += delta * 0.5
 	var sway_v = sin(_procedural_sway) * 0.02
 	var sway_h = cos(_procedural_sway * 0.7) * 0.01
 	
-	# Apply subtle sway to the Hips or Spine if possible
 	if _skeleton:
 		var hips = _skeleton.find_bone("Hips")
 		if hips != -1:
 			var cur_pos = _skeleton.get_bone_pose_position(hips)
 			_skeleton.set_bone_pose_position(hips, cur_pos + Vector3(sway_h, sway_v, 0) * delta)
 
-	# 2. Periodically shift 'weight' (simulated by varying the idle variation)
 	_idle_variation_timer -= delta
 	if _idle_variation_timer <= 0:
 		_idle_variation_timer = randf_range(10.0, 30.0)
 		_weight_shift = randf_range(-1.0, 1.0)
-		print("LUMAX: Jen shifting weight pose (%.2f)" % _weight_shift)
 
 func _process_eye_contact(delta: float) -> void:
 	if not _skeleton or _head_bone_idx == -1 or not player_camera: return
@@ -202,18 +206,24 @@ func _process_eye_contact(delta: float) -> void:
 	var diff = local_look - rest_origin
 	if diff.length_squared() < 0.01: return
 	
-	var dir = diff.normalized()
-	# HEAD LIMITS (Gracious range)
-	dir.y = clamp(dir.y, -0.3, 0.5)
-	dir.x = clamp(dir.x, -0.6, 0.6)
+	# We use a helper node to get the correct 'look_at' transform, which is more stable
+	var helper = get_node_or_null("HeadLookHelper")
+	if not helper:
+		helper = Node3D.new()
+		helper.name = "HeadLookHelper"
+		_skeleton.add_child(helper)
 	
+	helper.global_position = _skeleton.get_bone_global_pose(_head_bone_idx).origin
+	helper.look_at(look_target, Vector3.UP)
+	var local_transform = _skeleton.global_transform.affine_inverse() * helper.global_transform
+	var target_quat = local_transform.basis.get_rotation_quaternion()
+
 	var current_quat = _skeleton.get_bone_pose_rotation(_head_bone_idx)
-	var target_quat = Quaternion(Vector3.FORWARD, dir)
 	
 	# LERP Speed: Faster when interested, slower when shy
-	var speed = 2.5
-	if _gaze_mode == GazeMode.SHY: speed = 1.0
-	elif _gaze_mode == GazeMode.INTERESTED: speed = 4.0
+	var speed = 3.5
+	if _gaze_mode == GazeMode.SHY: speed = 1.5
+	elif _gaze_mode == GazeMode.INTERESTED or _gaze_mode == GazeMode.TRACK_TARGET: speed = 5.0
 	
 	_skeleton.set_bone_pose_rotation(_head_bone_idx, current_quat.slerp(target_quat, delta * speed))
 
@@ -222,7 +232,6 @@ func _update_gaze_strategy():
 	if roll < shyness_intensity:
 		_gaze_mode = GazeMode.SHY
 		_gaze_timer = randf_range(1.5, 4.0)
-		# Look down and slightly away
 		_gaze_target_pos = avatar_node.global_position + (avatar_node.global_transform.basis * Vector3(0.4, -0.8, 1.5))
 	elif roll < 0.8:
 		_gaze_mode = GazeMode.PLAYER
@@ -232,63 +241,91 @@ func _update_gaze_strategy():
 		_gaze_timer = randf_range(2.0, 6.0)
 		_gaze_target_pos = avatar_node.global_position + Vector3(randf_range(-4,4), randf_range(0.5, 2.5), -4)
 
-func _process_blink(delta: float) -> void:
-	_blink_timer += delta
-	if not _is_blinking:
-		if _blink_timer >= _next_blink_time:
-			_is_blinking = true
-			_blink_timer = 0.0
-	else:
-		if _blink_timer <= _blink_duration:
-			_set_blend_shape("Fcl_EYE_Close", 1.0)
-		else:
-			_set_blend_shape("Fcl_EYE_Close", 0.0)
-			_is_blinking = false
-			_next_blink_time = randf_range(2.0, 6.0)
-			_blink_timer = 0.0
+# --- PUPPET API ---
+func puppet_reach(side: String, target_pos: Vector3, duration: float = 2.0):
+	_ik_active = true
+	var marker = _target_l if side.to_upper() == "LEFT" else _target_r
+	if not marker: return
+	
+	var tween = create_tween()
+	tween.tween_property(marker, "global_position", target_pos, duration)
+	
+	# Also gaze at the target
+	_gaze_mode = GazeMode.TRACK_TARGET
+	_gaze_target_pos = target_pos
+	_gaze_timer = duration + 1.0
 
-func _set_blend_shape(shape_name: String, value: float) -> void:
-	if not _face_mesh or not _face_mesh.mesh: return
-	var idx = _face_mesh.find_blend_shape_by_name(shape_name)
-	if idx == -1: idx = _face_mesh.find_blend_shape_by_name(shape_name.to_lower())
-	if idx != -1: _face_mesh.set_blend_shape_value(idx, value)
+func reset_puppet():
+	_ik_active = false
+	_gaze_mode = GazeMode.PLAYER
 
-func play_greeting():
-	if clip_paths.has(&"wave"):
-		play_animation(&"wave")
+func _update_ik_blending(delta: float):
+	if not _ik_left_hand or not _ik_right_hand: return
+	var target_val = 1.0 if _ik_active else 0.0
+	_ik_left_hand.interpolation = lerp(_ik_left_hand.interpolation, target_val, delta * 2.0)
+	_ik_right_hand.interpolation = lerp(_ik_right_hand.interpolation, target_val, delta * 2.0)
+	
+	if _ik_left_hand.interpolation > 0.01:
+		if not _ik_left_hand.is_running(): _ik_left_hand.start()
+		if not _ik_right_hand.is_running(): _ik_right_hand.start()
+	elif _ik_left_hand.is_running():
+		_ik_left_hand.stop()
+		_ik_right_hand.stop()
+
+func _setup_ik():
+	if not _skeleton: return
+	
+	# Create IK Nodes procedurally
+	_ik_left_hand = SkeletonIK3D.new(); _ik_left_hand.name = "IK_L"; _skeleton.add_child(_ik_left_hand)
+	_ik_right_hand = SkeletonIK3D.new(); _ik_right_hand.name = "IK_R"; _skeleton.add_child(_ik_right_hand)
+	
+	_target_l = Marker3D.new(); _target_l.name = "Target_L"; add_child(_target_l)
+	_target_r = Marker3D.new(); _target_r.name = "Target_R"; add_child(_target_r)
+	
+	# Find chain ends
+	var l_hand = _skeleton.find_bone("LeftHand")
+	if l_hand == -1: l_hand = _skeleton.find_bone("Hand_L")
+	var r_hand = _skeleton.find_bone("RightHand")
+	if r_hand == -1: r_hand = _skeleton.find_bone("Hand_R")
+	
+	if l_hand != -1:
+		_ik_left_hand.root_bone = "LeftUpperArm" if _skeleton.find_bone("LeftUpperArm") != -1 else "UpperArm_L"
+		_ik_left_hand.tip_bone = _skeleton.get_bone_name(l_hand)
+		_ik_left_hand.target_node = _ik_left_hand.get_path_to(_target_l)
+		
+	if r_hand != -1:
+		_ik_right_hand.root_bone = "RightUpperArm" if _skeleton.find_bone("RightUpperArm") != -1 else "UpperArm_R"
+		_ik_right_hand.tip_bone = _skeleton.get_bone_name(r_hand)
+		_ik_right_hand.target_node = _ik_right_hand.get_path_to(_target_r)
 
 func play_animation(anim_name: StringName) -> void:
 	if not _animation_tree: return
-	
-	var state_name = String(anim_name).capitalize().replace(" ", "")
+	_animation_tree.active = true 
 	var playback = _animation_tree.get("parameters/playback")
-	
-	if playback and _animation_tree.tree_root and _animation_tree.tree_root.has_node(state_name):
-		_animation_tree.active = true 
+	if playback: 
+		var state_name = String(anim_name).capitalize().replace(" ", "")
 		if playback.get_current_node() != state_name:
 			playback.travel(state_name)
-	else:
-		# Fallback to direct AnimationPlayer
-		_animation_tree.active = false
-		if _body_animation_player.has_animation(String(_LIB_NAME) + "/" + String(anim_name)):
-			_body_animation_player.play(String(_LIB_NAME) + "/" + String(anim_name), 0.5)
 
 func _setup_references() -> void:
 	_animation_tree = get_node_or_null("AnimationTree")
 	_body_animation_player = avatar_node.find_child("AnimationPlayer", true, false)
 	if not _body_animation_player: _body_animation_player = avatar_node.find_child("*AnimationPlayer*", true, false)
 	
-	_skeleton = avatar_node.find_child("GeneralSkeleton", true, false)
-	if not _skeleton: _skeleton = avatar_node.find_child("*Skeleton*", true, false)
+	if not _skeleton:
+		_skeleton = avatar_node.find_child("GeneralSkeleton", true, false)
+		if not _skeleton: _skeleton = avatar_node.find_child("*Skeleton*", true, false)
 			
 	if _skeleton: 
 		_head_bone_idx = _skeleton.find_bone("Head")
 		if _head_bone_idx == -1: _head_bone_idx = _skeleton.find_bone("head")
 	
-	_face_mesh = null
-	_find_face_mesh(avatar_node)
-	
 	if _body_animation_player: _setup_animation_library()
+
+func refresh_animation_system() -> void:
+	_setup_animation_library()
+	force_resanitize_animations()
+	_setup_animation_graph()
 
 func _setup_animation_library() -> void:
 	var lib = null
@@ -309,64 +346,66 @@ func _setup_animation_library() -> void:
 
 func force_resanitize_animations() -> void:
 	if not _body_animation_player or not avatar_node: return
-	var skel = _skeleton
+	var skel = avatar_node.find_child("Skeleton3D", true, false)
+	if not skel: skel = avatar_node.find_child("*Skeleton*", true, false)
 	if not skel: return
 	
-	# Get path relative to the AnimationPlayer's ROOT NODE
-	var anim_root_path = _body_animation_player.root_node
-	var anim_root = _body_animation_player.get_node(anim_root_path)
-	if not anim_root: return
+	_face_mesh = null
+	_find_face_mesh(avatar_node)
+	if not _face_mesh: return
 	
-	var skel_path = String(anim_root.get_path_to(skel))
-	
-	if LogMaster: LogMaster.log_info("ANIM_SYSTEM: Resanitizing tracks. Root=" + anim_root.name + " SkelPath=" + skel_path)
+	var skel_path = String(_body_animation_player.get_path_to(skel))
+	var face_path = String(_body_animation_player.get_path_to(_face_mesh))
 	
 	for lib_name in _body_animation_player.get_animation_library_list():
 		var lib = _body_animation_player.get_animation_library(lib_name)
-		var anim_list = lib.get_animation_list()
-		
-		for anim_name in anim_list:
+		for anim_name in lib.get_animation_list():
 			var anim = lib.get_animation(anim_name)
-			if not anim: continue
+			# Unique meta key to avoid redundant work
+			var meta_key = "sanitized_" + str(skel.get_instance_id()) + "_" + str(_face_mesh.get_instance_id())
+			if not anim or anim.get_meta(meta_key, false): continue
 			
-			var changed = false
 			for i in range(anim.get_track_count()):
 				var old_path = String(anim.track_get_path(i))
-				for target in ["Skeleton3D", "GeneralSkeleton", "Armature"]:
-					if old_path.contains(target) and not old_path.begins_with(skel_path):
-						var parts = old_path.split(":")
-						var new_path = skel_path + (":" + parts[1] if parts.size() > 1 else "")
-						anim.track_set_path(i, NodePath(new_path))
-						changed = true
-						break
-			if changed:
-				if LogMaster and randf() < 0.01: # Log only occasionally to avoid spam
-					LogMaster.log_info("ANIM_SYSTEM: Re-aligned " + anim_name)
+				if "blend_shapes/" in old_path or "Fcl_" in old_path:
+					var parts = old_path.split(":")
+					var property = ":" + parts[1] if parts.size() > 1 else ""
+					if not old_path.begins_with(face_path):
+						anim.track_set_path(i, NodePath(face_path + property))
+				else:
+					for target in ["Skeleton3D", "GeneralSkeleton", "Armature"]:
+						if target in old_path and not old_path.begins_with(skel_path):
+							var parts = old_path.split(":")
+							var property = ":" + parts[1] if parts.size() > 1 else ""
+							anim.track_set_path(i, NodePath(skel_path + property))
+							break
+			anim.set_meta(meta_key, true)
 
 func _setup_animation_graph() -> void:
-	if not _body_animation_player: return
 	var root = AnimationNodeStateMachine.new()
 	var lib = _body_animation_player.get_animation_library(_LIB_NAME)
-	
-	# Add standard locomotion and common interaction states
-	var states = ["idle", "wave", "happy", "sad", "walk", "walk_back", "walk_left", "walk_right", "run", "dance", "sit", "praying"]
-	for s in states:
-		if lib.has_animation(s):
-			var node = AnimationNodeAnimation.new()
-			node.animation = String(_LIB_NAME) + "/" + s
-			var state_name = s.capitalize().replace(" ", "")
-			root.add_node(state_name, node)
-			if s == "idle":
-				root.set_graph_offset(Vector2(0, 0)) # Standard center
-	
+	if lib.has_animation(&"idle"):
+		var locomotion = AnimationNodeAnimation.new(); locomotion.animation = _LIB_NAME + "/idle"
+		root.add_node("Locomotion", locomotion)
 	_animation_tree.tree_root = root
 	_animation_tree.anim_player = _animation_tree.get_path_to(_body_animation_player)
 	_animation_tree.active = false 
 	var playback = _animation_tree.get("parameters/playback")
-	if playback and root.has_node("Idle"): playback.start("Idle")
+	if playback and root.has_node("Locomotion"): playback.start("Locomotion")
+
+func _set_blend_shape(shape_name: String, value: float) -> void:
+	if not _face_mesh or not _face_mesh.mesh: return
+	var idx = _face_mesh.find_blend_shape_by_name(shape_name)
+	if idx == -1: idx = _face_mesh.find_blend_shape_by_name(shape_name.to_lower())
+	if idx != -1: _face_mesh.set_blend_shape_value(idx, value)
 
 func _find_face_mesh(node: Node) -> void:
 	if not node: return
 	if node is MeshInstance3D and node.mesh:
-		if node.name.to_lower().contains("face") or node.find_blend_shape_by_name("Fcl_EYE_Close") != -1: _face_mesh = node; return
+		if node.mesh.get_blend_shape_count() > 0:
+			if node.name.to_lower().contains("face") or node.find_blend_shape_by_name("Fcl_EYE_Close") != -1:
+				_face_mesh = node; return
 	for c in node.get_children(): _find_face_mesh(c); if _face_mesh: return
+
+func play_greeting():
+	get_node("/root/LumaxCore").play_category("Greetings")

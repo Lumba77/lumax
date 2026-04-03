@@ -357,20 +357,31 @@ async def handle_compagent_request(request: CompagentRequest):
         except Exception as ve:
             logger.error(f"Vision Pipeline Error: {ve}", exc_info=True)
 
-    # 2. History & Prompt
+    # 2. History & Layered Memory (Interrelational)
     history_str = ""
+    memory_context = ""
     if not request.skip_features:
         if redis_memory is None: redis_memory = RedisMemory(host=REDIS_HOST, port=REDIS_PORT)
+        if vector_memory is None: vector_memory = VectorMemory(ollama_host=OLLAMA_HOST, embed_model=OLLAMA_EMBED_MODEL)
+        
+        # A. SHORT-TERM: Recent Conversation
         chat_history = await redis_memory.get_session_history(session_id)
         for msg in chat_history.messages[-8:]:
             role = "Daniel" if msg.role == "user" else "Jen"
             history_str += f"{role}: {msg.content}\n"
         history_str += f"Daniel: {request.input}\n"
+        
+        # B. LONG-TERM (Interrelational): Retrieve similar past experiences
+        relevant_mems = await vector_memory.retrieve_memories(session_id, request.input, n_results=3)
+        if relevant_mems:
+            memory_context = "\n[RELEVANT_INTERRELATIONAL_CONTEXT]:\n"
+            for mem in relevant_mems:
+                memory_context += f"- {mem['text']}\n"
     else:
         history_str = f"USER: {request.input}\n"
 
     async with VRAM_LOCK:
-        # 3. Proprioceptive Grounding (Body Metrics & Dream Goal)
+        # 3. Proprioceptive Grounding & Dynamic Bond
         body_metrics = f"My vessel is tuned. My subconscious focus is: {CURRENT_GOAL}"
         
         full_system_prompt = MindCore.build_system_prompt(
@@ -381,11 +392,28 @@ async def handle_compagent_request(request: CompagentRequest):
             personality_knobs=_current_soul_dna
         )
         
+        # Inject long-term memory context into the prompt
+        if memory_context:
+            full_system_prompt += memory_context
+            
         full_prompt = f"{full_system_prompt}\n\n{history_str}Jen:"
         raw_response = engine.generate(full_prompt, image_base64=active_images[0] if active_images and engine.engine_type not in ["GGUF"] else None)
         
         clean_res = MindCore.clean_response(raw_response)
         text = clean_res["text"]
+        
+        # --- ANTI-REPETITION GUARD ---
+        if not request.skip_features and redis_memory:
+            last_msgs = chat_history.messages[-2:]
+            for m in last_msgs:
+                if m.role == "ai" and m.content.strip() == text.strip():
+                    logger.warning("Soul: Repetition detected! Forcing creative divergence.")
+                    divergent_prompt = f"{full_prompt} [SYSTEM: Your previous message was a duplicate. Provide a completely different, fresh response now.]\nJen:"
+                    raw_response = engine.generate(divergent_prompt)
+                    clean_res = MindCore.clean_response(raw_response)
+                    text = clean_res["text"]
+                    break
+
         thought = clean_res["thought"]
         emotion = clean_res["emotion"]
         action = clean_res["action"]
