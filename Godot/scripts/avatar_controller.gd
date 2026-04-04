@@ -93,9 +93,11 @@ func _update_body_orientation(delta: float) -> void:
 	
 	var dir = (target_pos - avatar_node.global_position).normalized()
 	if dir.length_squared() > 0.01:
-		# Slower, more graceful rotation
+		# Slower, more graceful rotation using Quaternions to avoid Basis normalization errors
 		var target_basis = Basis.looking_at(-dir, Vector3.UP)
-		avatar_node.global_transform.basis = avatar_node.global_transform.basis.slerp(target_basis, delta * 0.5)
+		var q_current = avatar_node.global_transform.basis.orthonormalized().get_rotation_quaternion()
+		var q_target = target_basis.orthonormalized().get_rotation_quaternion()
+		avatar_node.global_transform.basis = Basis(q_current.slerp(q_target, delta * 0.5))
 
 func _ready() -> void:
 	if not avatar_node: 
@@ -106,7 +108,7 @@ func _ready() -> void:
 	_setup_references()
 	
 	if _animation_tree:
-		_animation_tree.active = false
+		_animation_tree.active = true
 		
 	_is_locked = false
 	call_deferred("play_greeting")
@@ -275,15 +277,16 @@ func play_animation(anim_name: StringName) -> void:
 		if playback.get_current_node() != state_name:
 			playback.travel(state_name)
 	else:
-		# Fallback to direct AnimationPlayer
-		_animation_tree.active = false
-		if _body_animation_player.has_animation(String(_LIB_NAME) + "/" + String(anim_name)):
+		# Fallback to direct AnimationPlayer (but keep tree active if possible so we don't break VRM blendshapes)
+		if _body_animation_player and _body_animation_player.has_animation(String(_LIB_NAME) + "/" + String(anim_name)):
 			_body_animation_player.play(String(_LIB_NAME) + "/" + String(anim_name), 0.5)
 
 func _setup_references() -> void:
 	_animation_tree = get_node_or_null("AnimationTree")
+	# EXHAUSTIVE SEARCH: The AnimationPlayer might be deeply nested in the VRM scene
 	_body_animation_player = avatar_node.find_child("AnimationPlayer", true, false)
-	if not _body_animation_player: _body_animation_player = avatar_node.find_child("*AnimationPlayer*", true, false)
+	if not _body_animation_player: _body_animation_player = find_child("AnimationPlayer", true, false)
+	if not _body_animation_player: _body_animation_player = get_parent().find_child("AnimationPlayer", true, false)
 	
 	_skeleton = avatar_node.find_child("GeneralSkeleton", true, false)
 	if not _skeleton: _skeleton = avatar_node.find_child("*Skeleton*", true, false)

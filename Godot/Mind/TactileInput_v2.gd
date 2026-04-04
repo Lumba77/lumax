@@ -31,6 +31,9 @@ var _sb_hov: StyleBoxFlat
 var _bg_style: StyleBoxFlat
 var _buffer_style: StyleBoxFlat
 
+var _user_preview: TextureRect
+var _jen_preview: TextureRect
+
 func _ready() -> void:
 	if Engine.is_editor_hint(): return
 	set_anchors_preset(PRESET_FULL_RECT)
@@ -51,8 +54,13 @@ func _setup_styles() -> void:
 	_buffer_style.bg_color = Color(0.1, 0.1, 0.1, 0.3)
 	_buffer_style.set_corner_radius_all(5)
 
+var _last_pulse_time := 0.0
+
 func _on_key_btn_pressed(kd: Dictionary, _btn: Button) -> void:
-	haptic_pulse_requested.emit(kd.has("act"))
+	var now = Time.get_ticks_msec()
+	if now - _last_pulse_time > 100:
+		haptic_pulse_requested.emit(kd.has("act"))
+		_last_pulse_time = now
 	var act: String = kd.get("act", "")
 	match act:
 		"_shift_l": _shift_down = !_shift_down; _update_key_labels()
@@ -98,21 +106,31 @@ func _on_bond_value_changed(val: float) -> void:
 	_buffer_style.bg_color = c_bg.lightened(0.1)
 	_buffer_style.bg_color.a = 0.4
 	
-	trait_slider_changed.emit("relationship_bond", val)
-	trait_slider_changed.emit("openness", val)
-	trait_slider_changed.emit("experimental", val)
-	trait_slider_changed.emit("polyamory", val)
-	trait_slider_changed.emit("intellectual", val)
-	
 	bond_slider_changed.emit(val)
+
+func _on_slider_released(trait_name: String, val: float) -> void:
+	if trait_name == "relationship_bond":
+		trait_slider_changed.emit("relationship_bond", val)
+		trait_slider_changed.emit("openness", val)
+		trait_slider_changed.emit("experimental", val)
+		trait_slider_changed.emit("polyamory", val)
+		trait_slider_changed.emit("intellectual", val)
+	else:
+		trait_slider_changed.emit(trait_name, val)
 
 func _add_dynamic_slider(root: Control, trait_name: String, l_text: String, r_text: String, l_color: Color, r_color: Color):
 	var hbox = HBoxContainer.new(); hbox.alignment = BoxContainer.ALIGNMENT_CENTER; root.add_child(hbox)
-	var l_l = Label.new(); l_l.text = "[ " + l_text + " ]"; l_l.add_theme_color_override("font_color", l_color); l_l.custom_minimum_size.x = 100; l_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT; hbox.add_child(l_l)
+	var l_l = Label.new(); l_l.text = "[" + l_text + "]"; l_l.add_theme_color_override("font_color", l_color); l_l.custom_minimum_size.x = 70; l_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT; hbox.add_child(l_l)
 	var s = HSlider.new(); s.min_value = -100; s.max_value = 100; s.value = 0; s.size_flags_horizontal = SIZE_EXPAND_FILL; hbox.add_child(s)
-	s.value_changed.connect(func(v): trait_slider_changed.emit(trait_name, v))
-	if trait_name == "relationship_bond": s.value_changed.connect(_on_bond_value_changed)
-	var l_r = Label.new(); l_r.text = "[ " + r_text + " ]"; l_r.add_theme_color_override("font_color", r_color); l_r.custom_minimum_size.x = 100; l_r.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT; hbox.add_child(l_r)
+	
+	# VISUALS (Live)
+	if trait_name == "relationship_bond": 
+		s.value_changed.connect(_on_bond_value_changed)
+	
+	# COGNITION (On Release)
+	s.drag_ended.connect(func(changed): if changed: _on_slider_released(trait_name, s.value))
+	
+	var l_r = Label.new(); l_r.text = "[" + r_text + "]"; l_r.add_theme_color_override("font_color", r_color); l_r.custom_minimum_size.x = 70; l_r.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT; hbox.add_child(l_r)
 
 func _get_layout_compact() -> Array:
 	return [
@@ -169,21 +187,52 @@ func _build_keyboard() -> void:
 	root_margin.add_child(root_vbox)
 	root_vbox.add_theme_constant_override("separation", 4)
 	
-	# 1. THE ONE SLIDER (Top)
-	var slider_vbox = VBoxContainer.new(); root_vbox.add_child(slider_vbox)
+	# --- VISION COCKPIT (Triple Column) ---
+	var cockpit_hbox := HBoxContainer.new()
+	cockpit_hbox.add_theme_constant_override("separation", 10)
+	root_vbox.add_child(cockpit_hbox)
+	
+	# 1. USER POV PREVIEW
+	var u_bg = PanelContainer.new(); u_bg.custom_minimum_size = Vector2(60, 60); cockpit_hbox.add_child(u_bg)
+	_user_preview = TextureRect.new()
+	_user_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_user_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_user_preview.set_anchors_preset(PRESET_FULL_RECT)
+	_user_preview.size_flags_horizontal = SIZE_EXPAND_FILL
+	_user_preview.size_flags_vertical = SIZE_EXPAND_FILL
+	u_bg.add_child(_user_preview)
+	
+	# 2. CONTROL CENTER (Slider & Buffer)
+	var control_vbox := VBoxContainer.new()
+	control_vbox.size_flags_horizontal = SIZE_EXPAND_FILL
+	control_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	cockpit_hbox.add_child(control_vbox)
+	
+	# 1. THE ONE SLIDER
+	var slider_vbox = VBoxContainer.new(); control_vbox.add_child(slider_vbox)
 	_add_dynamic_slider(slider_vbox, "relationship_bond", "AGENT", "COUPLE", Color.CYAN, Color.HOT_PINK)
 
-	# 2. BUFFER DISPLAY (Hued by slider)
-	var buffer_panel = PanelContainer.new(); root_vbox.add_child(buffer_panel)
+	# 2. BUFFER DISPLAY
+	var buffer_panel = PanelContainer.new(); control_vbox.add_child(buffer_panel)
 	buffer_panel.add_theme_stylebox_override("panel", _buffer_style)
 	_buffer_label = Label.new()
 	_buffer_label.text = "> " + _buffer + "_"
-	_buffer_label.add_theme_font_size_override("font_size", 24)
+	_buffer_label.add_theme_font_size_override("font_size", 18)
 	_buffer_label.add_theme_color_override("font_color", Color.CYAN)
-	_buffer_label.custom_minimum_size.y = 45
+	_buffer_label.custom_minimum_size.y = 30
 	_buffer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_buffer_label.clip_text = true
 	buffer_panel.add_child(_buffer_label)
+	
+	# 3. JEN POV PREVIEW
+	var j_bg = PanelContainer.new(); j_bg.custom_minimum_size = Vector2(60, 60); cockpit_hbox.add_child(j_bg)
+	_jen_preview = TextureRect.new()
+	_jen_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_jen_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_jen_preview.set_anchors_preset(PRESET_FULL_RECT)
+	_jen_preview.size_flags_horizontal = SIZE_EXPAND_FILL
+	_jen_preview.size_flags_vertical = SIZE_EXPAND_FILL
+	j_bg.add_child(_jen_preview)
 
 	# --- INTERACTION AREA ---
 	var main_hbox := HBoxContainer.new()
@@ -207,14 +256,14 @@ func _build_keyboard() -> void:
 	var layout = _get_layout_compact()
 	
 	# 3. COLORED LABELED BUTTONS (Row 1 of layout)
-	var labeled_hbox := HBoxContainer.new(); labeled_hbox.size_flags_horizontal = SIZE_EXPAND_FILL; cvbc.add_child(labeled_hbox)
+	var labeled_hbox := HBoxContainer.new(); labeled_hbox.size_flags_horizontal = SIZE_EXPAND_FILL; labeled_hbox.size_flags_vertical = SIZE_EXPAND_FILL; cvbc.add_child(labeled_hbox)
 	labeled_hbox.add_theme_constant_override("separation", KEY_GAP)
 	for kd in layout[1]:
 		var btn = _create_key_btn(kd)
 		btn.size_flags_horizontal = SIZE_EXPAND_FILL; labeled_hbox.add_child(btn)
 
 	# 4. BLACK NUMBERS AND SYMBOLS (Row 0 of layout)
-	var num_hbox := HBoxContainer.new(); num_hbox.size_flags_horizontal = SIZE_EXPAND_FILL; cvbc.add_child(num_hbox)
+	var num_hbox := HBoxContainer.new(); num_hbox.size_flags_horizontal = SIZE_EXPAND_FILL; num_hbox.size_flags_vertical = SIZE_EXPAND_FILL; cvbc.add_child(num_hbox)
 	num_hbox.add_theme_constant_override("separation", KEY_GAP)
 	for kd in layout[0]:
 		var btn = _create_key_btn(kd)
@@ -222,7 +271,7 @@ func _build_keyboard() -> void:
 
 	# 5. BLACK KEYBOARD ROWS (Rows 2, 3, 4)
 	for i in range(2, 5):
-		var hbox := HBoxContainer.new(); hbox.size_flags_horizontal = SIZE_EXPAND_FILL; cvbc.add_child(hbox)
+		var hbox := HBoxContainer.new(); hbox.size_flags_horizontal = SIZE_EXPAND_FILL; hbox.size_flags_vertical = SIZE_EXPAND_FILL; cvbc.add_child(hbox)
 		hbox.add_theme_constant_override("separation", KEY_GAP)
 		for kd in layout[i]:
 			var btn = _create_key_btn(kd)
@@ -237,7 +286,8 @@ func _build_keyboard() -> void:
 		rgrid.add_child(btn)
 
 func _create_key_btn(kd: Dictionary) -> Button:
-	var btn := Button.new(); btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var btn := Button.new(); btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL; btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(40, 45) # Ensure keys have physical presence
 	btn.size_flags_stretch_ratio = kd.get("sz", 1.0); btn.focus_mode = Control.FOCUS_NONE
 	btn.text = "" 
 	
@@ -271,3 +321,9 @@ func _update_key_labels() -> void:
 			else:
 				if lbl_u: lbl_u.modulate = Color(0.6, 0.6, 0.6)
 				if lbl_l: lbl_l.modulate = Color.WHITE
+
+func update_previews(user_tex: Texture2D, jen_tex: Texture2D) -> void:
+	if _user_preview and is_instance_valid(_user_preview):
+		_user_preview.texture = user_tex
+	if _jen_preview and is_instance_valid(_jen_preview):
+		_jen_preview.texture = jen_tex

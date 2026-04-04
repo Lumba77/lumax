@@ -9,29 +9,29 @@ resource_local_to_scene = true
 
 [sub_resource type="BoxShape3D" id="4"]
 resource_local_to_scene = true
-size = Vector3(0.7, 1.2, 0.02)
+size = Vector3(0.8, 1.2, 0.02)
 
 [node name="Display" instance=ExtResource("1")]
-screen_size = Vector2(0.7, 1.2)
-viewport_size = Vector2(700, 1200)
+screen_size = Vector2(0.8, 1.2)
+viewport_size = Vector2(800, 1200)
 unshaded = true
 transparent = 1
 
 [node name="Viewport" parent="." index="0"]
-size = Vector2i(700, 1200)
+size = Vector2i(800, 1200)
 transparent_bg = true
 
 [node name="WebUI" type="Control" parent="Viewport" index="0"]
 anchors_preset = 15
 anchor_right = 1.0
-anchor_bottom = 0.8
+anchor_bottom = 0.7
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("2_new")
 
 [node name="TactileInput" type="Control" parent="Viewport" index="1"]
 anchors_preset = 15
-anchor_top = 0.8
+anchor_top = 0.7
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
@@ -42,8 +42,8 @@ script = ExtResource("4_v2")
 texture = SubResource("1")
 
 [node name="StaticBody3D" parent="." index="2"]
-screen_size = Vector2(0.7, 1.2)
-viewport_size = Vector2(700, 1200)
+screen_size = Vector2(0.8, 1.2)
+viewport_size = Vector2(800, 1200)
 
 [node name="CollisionShape3D" parent="StaticBody3D" index="0"]
 shape = SubResource("4")

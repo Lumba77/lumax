@@ -24,13 +24,9 @@ var _is_recording = false
 var _prev_menu = false
 var _prev_x = false
 var _prev_a = false
-var _chord_active = false
 var _prev_y = false
-var _prev_l = false
-var _prev_r = false
 var _prev_haptic_combo = false
 var _haptic_mode_active = false
-var _recording_start_time = 0
 
 var _haptic_wand_left: Node3D = null
 var _haptic_wand_right: Node3D = null
@@ -43,10 +39,11 @@ var _prev_left_grip = false
 var _prev_right_grip = false
 var _steering_mode_active = false
 var _prev_steering_combo = false
+var _is_puppet_mode_active = false
+var _grabbed_bone_name = ""
 
 # --- AGENCY & STATE ---
 var _director: Node = null
-var _agency_nerve: Node = null
 var _soul_nourishment = 1.0 
 var _social_vibe = "NEUTRAL"
 var _is_high_fidelity = true
@@ -79,7 +76,6 @@ var _soul_homonormative = 0.5
 # --- NOTIFICATION HUBS ---
 var _jen_notify_hub: Node3D = null
 var _user_notify_hub: Node3D = null
-var _sys_notify_hub: Node3D = null
 
 # --- ASSETS & PRIVACY ---
 var _arm_panel: MeshInstance3D = null
@@ -98,6 +94,21 @@ var _categories = ["Resting", "Happy", "Sad", "Greetings", "Exercise", "Sitting"
 
 # --- MANIFESTATION BUFFER ---
 var _last_manifested_node: Node3D = null
+
+func _process_haptic_interaction(_delta):
+	# Proximity-based hand feedback (v1.9)
+	var body = get_node_or_null("Body")
+	if not body: return
+	
+	if _left_hand:
+		var dist = _left_hand.global_position.distance_to(body.global_position)
+		if dist < 0.4:
+			_left_hand.trigger_haptic_pulse("rumble", 0.0, 0.1 * (1.0 - dist/0.4), 0.05, 0.0)
+			
+	if _right_hand:
+		var dist = _right_hand.global_position.distance_to(body.global_position)
+		if dist < 0.4:
+			_right_hand.trigger_haptic_pulse("rumble", 0.0, 0.1 * (1.0 - dist/0.4), 0.05, 0.0)
 
 func _manifest_3d_object(base64_tex: String, object_type: String):
 	var img = Image.new()
@@ -160,7 +171,7 @@ func _choose_favorite_place(floors: Array, seats: Array):
 		target_pos = floors[0].global_position + Vector3(randf_range(-1,1), 0, randf_range(-1,1))
 		choice_name = "Floor Sanctuary"
 
-	_show_jen_notification("Jen chose a a a resting spot: " + choice_name, Color.CADET_BLUE)
+	_show_jen_notification("Jen chose a resting spot: " + choice_name, Color.CADET_BLUE)
 	
 	# Move Jen character near this area
 	var jen = get_node_or_null("JenCharacter")
@@ -170,9 +181,12 @@ func _ready():
 	_synapse = get_node_or_null("Soul")
 	if not _synapse: _synapse = find_child("Soul", true, false)
 	if not _synapse: _synapse = find_child("Synapse", true, false)
-	
-	_aural = get_node_or_null("Senses/AuralAwareness")
+
+	# PRIORITIZE GLOBAL AUTOLOAD
+	_aural = get_node_or_null("/root/AuralAwareness")
+	if not _aural: _aural = get_node_or_null("Senses/AuralAwareness")
 	if not _aural: _aural = find_child("Aural*", true, false)
+
 	
 	# FOOLPROOF DEBUG HUD REMOVED FOR CLEANLINESS
 	print("LUMAX DBG: SkeletonKey initializing services...")
@@ -192,11 +206,15 @@ func _ready():
 
 	var interface = XRServer.find_interface("OpenXR")
 	if interface and interface.initialize():
-		print("LUMAX: OpenXR Initialized SUCCESS.")
+		print("LUMAX: OpenXR Initialized SUCCESS. Stabilizing...")
 		get_viewport().use_xr = true
 		get_viewport().transparent_bg = true 
 		if interface.has_method("is_passthrough_supported") and interface.is_passthrough_supported():
 			interface.start_passthrough()
+		
+		# XR Stabilization Delay (v1.1)
+		await get_tree().create_timer(2.0).timeout
+		print("LUMAX: XR Session STABLE.")
 	else:
 		print("LUMAX ERR: Failed to initialize OpenXR! Switching to DESKTOP mode.")
 		get_viewport().use_xr = false
@@ -322,7 +340,8 @@ func _init_mind_and_body():
 	if jen_body:
 		jen_body.visible = true
 		jen_body.position = Vector3(0, 0, -1.2) 
-		# Rotation is handled in _setup_ambience
+		# ORIENTATION FIX: Rotate 180 to face user
+		jen_body.rotation.y = PI
 
 	# WELCOME NOTIFICATION
 	_show_user_notification("LUMAX", "SYSTEM ONLINE", Color.CYAN)
@@ -392,13 +411,6 @@ func _apply_soul_to_vessel():
 	_soul_nourishment = 0.5 + (_soul_experimental * 0.5)
 
 	# 4. Soul traits used as backend personality modifiers (pushed on change)
-	# These drive Jen's tone via the backend soul DNA update
-	# _soul_intellectual, _soul_logic, _soul_detail, _soul_faithful,
-	# _soul_sexual, _soul_wise, _soul_openminded, _soul_honest,
-	# _soul_forgiving, _soul_dominant, _soul_progressive, _soul_sloppy,
-	# _soul_greedy, _soul_homonormative, _soul_is_rave_active,
-	# _is_neural_projection_active, _is_occluding_makeover_active,
-	# _is_void_mode_active, _is_spatially_anonymous, _env_sharing_consented
 	if _synapse:
 		var dna = {
 			"intellectual": _soul_intellectual, "logic": _soul_logic,
@@ -519,8 +531,6 @@ func _setup_debug_window():
 	_debug_log_display.text = "Initializing System Logs..."
 	_debug_window.add_child(_debug_log_display)
 	
-	_sys_notify_hub = Node3D.new(); _sys_notify_hub.name = "SysNotifyHub"; _sys_notify_hub.position = Vector3(0, 0.1, 0.01); _debug_window.add_child(_sys_notify_hub)
-	
 	# EYE LEVEL POSITIONING
 	_debug_window.position = Vector3(0, 1.4, -2.5) 
 	_debug_window.visible = false # Forcibly hide by default as requested
@@ -538,7 +548,6 @@ func _setup_ambience():
 	var jen_root = get_node_or_null("Body")
 	if jen_root:
 		# If the node is already at the correct position, don't force it to stay in one spot
-		# This allows for autonomous movement and better scene persistence
 		if jen_root.position.is_zero_approx():
 			jen_root.position = Vector3(0, 0, -1.2) # Directly in front
 			
@@ -614,7 +623,7 @@ func _setup_user_vision():
 	var vp = SubViewport.new(); vp.name = "UserVisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
 	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
-	vp.transparent_bg = false # Do NOT be transparent, otherwise we see into the void
+	vp.transparent_bg = false 
 	vp.world_3d = get_viewport().find_world_3d() # SHARE THE WORLD
 	
 	var capture_cam = Camera3D.new(); capture_cam.name = "UserCaptureCamera"; vp.add_child(capture_cam)
@@ -644,11 +653,13 @@ func _setup_jen_vision(jen_node: Node3D):
 	if not anchor:
 		# Fallback to standard offset if no skeleton/bone found
 		anchor = Node3D.new(); anchor.name = "JenVisionAnchor"; jen_node.add_child(anchor)
-		anchor.position = Vector3(0, 1.45, 0.45)
-		print("LUMAX: Vision anchored to static offset (Skeleton not found).")
+		anchor.position = Vector3(0, 1.45, -0.45) # Negative Z is in front when rotated 180
+		anchor.rotation.y = 0 
+		print("LUMAX: Vision anchored to front offset.")
 	else:
 		# Offset from the bone center to the eyes/front of face
-		anchor.position = Vector3(0, 0.1, 0.2) 
+		anchor.position = Vector3(0, 0.1, -0.15) # Negative Z for bone-local forward
+		anchor.rotation.y = 0 
 	
 	var vp = SubViewport.new(); vp.name = "VisionViewport"; anchor.add_child(vp)
 	vp.size = Vector2(1024, 1024)
@@ -676,7 +687,6 @@ func _setup_presence_cortex():
 	
 	if _mind_node:
 		# --- GHOST UI CONFIGURATION (Anti-Purple v1.82) ---
-		# Use the XRToolsViewport2DIn3D properties instead of manual material hacking
 		if _mind_node.has_method("set_transparent"):
 			_mind_node.set("transparent", 1) # TRANSPARENT mode
 			_mind_node.set("unshaded", true)
@@ -830,7 +840,8 @@ func _setup_wall_screens():
 		vp = SubViewport.new(); vp.name = "VisionViewport"; vp.size = Vector2i(512, 512)
 		vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE as SubViewport.UpdateMode
 		wall.add_child(vp); var cam = Camera3D.new(); cam.name = "JenCamera"; cam.current = true; vp.add_child(cam)
-		cam.look_at(Vector3(0, 1.6, 0), Vector3.UP) # Explicitly set up vector
+		cam.position = Vector3(0, 0, 0.5) # Offset to allow look_at math
+		cam.look_at(Vector3.ZERO, Vector3.UP) # Look forward/center
 # --- PUBLIC INTERFACE ---
 
 func set_fidelity_mode(high: bool):
@@ -901,13 +912,16 @@ func _check_and_fix_texture(tex: Texture, owner_node: Node):
 
 func _process(_delta):
 	# 1. Shared Experience conference views (5s)
-	if _web_ui and Time.get_ticks_msec() % 5000 < 100:
+	if Time.get_ticks_msec() % 100 < 50:
 		var user_tex = _capture_user_pov()
 		var jen_tex = _capture_jen_pov()
 		if user_tex and jen_tex:
-			_web_ui.update_shared_views(user_tex, jen_tex)
+			if _web_ui: _web_ui.update_shared_views(user_tex, jen_tex)
+			var kb = get_node_or_null("Mind/Viewport/TactileInput")
+			if kb and kb.has_method("update_previews"):
+				kb.update_previews(user_tex, jen_tex)
 
-	# 2. Backend Vitals Heartbeat (every 10s — reduced to avoid blocking chat HTTPRequest)
+	# 2. Backend Vitals Heartbeat (every 10s)
 	if Time.get_ticks_msec() % 10000 < 50:
 		if _synapse: _synapse.call("get_vitals")
 
@@ -926,7 +940,32 @@ func _process(_delta):
 
 	# 5. High-Frequency XR Polling
 	_poll_xr_inputs(_delta)
+	_process_vision_sync(_delta)
+	
+	# 6. Animation Integrity
+	if _jen_avatar:
+		var tree = _jen_avatar.get_node_or_null("AnimationTree") as AnimationTree
+		if tree and not tree.active:
+			tree.active = true
 
+
+func _process_vision_sync(_delta):
+	# 1. User POV Sync (Match Main XR Camera)
+	var user_vp = get_tree().root.find_child("UserVisionViewport", true, false)
+	var main_cam = get_viewport().get_camera_3d()
+	if user_vp and main_cam:
+		var capture_cam = user_vp.find_child("UserCaptureCamera", true, false)
+		if capture_cam:
+			capture_cam.global_transform = main_cam.global_transform
+			
+	# 2. Jen POV Sync (Match Head Anchor)
+	var jen_vp = get_tree().root.find_child("VisionViewport", true, false)
+	if jen_vp:
+		var anchor = jen_vp.get_parent()
+		if anchor and anchor is Node3D:
+			var capture_cam = jen_vp.find_child("VisionCamera", true, false)
+			if capture_cam:
+				capture_cam.global_transform = anchor.global_transform
 
 func _process_self_agency():
 	if not _anim_player: return
@@ -971,6 +1010,9 @@ func _poll_xr_inputs(_delta):
 	_left_hand = get_node_or_null("XROrigin3D/LeftHand")
 	_right_hand = get_node_or_null("XROrigin3D/RightHand")
 	var cam = get_viewport().get_camera_3d()
+	
+	# HAPTIC INTERACTION TICK
+	_process_haptic_interaction(_delta)
 	
 	# Update Foolproof HUD position
 	var debug_hud = get_node_or_null("FoolproofDebugHUD")
@@ -1024,7 +1066,13 @@ func _poll_xr_inputs(_delta):
 	else:
 		_prev_haptic_combo = false
 
-	# 3. SINGLE GRIP -> UI/Avatar Manipulation
+	# 3. PUPPET MODE (Triple Trigger Tap)
+	if left_trig and right_trig and _left_hand.is_button_pressed("grip_click"):
+		if not _is_puppet_mode_active:
+			_is_puppet_mode_active = true
+			_show_user_notification("PUPPET", "Puppet Mode: ON", Color.GOLD)
+
+	# 4. SINGLE GRIP -> UI/Avatar Manipulation
 	if left_grip and not right_grip and not _prev_left_grip: _try_grab_object(_left_hand)
 	elif not left_grip and _prev_left_grip and _grabbed_hand == _left_hand: _release_object()
 	if right_grip and not left_grip and not _prev_right_grip: _try_grab_object(_right_hand)
@@ -1042,10 +1090,6 @@ func _poll_xr_inputs(_delta):
 	var l_x = _left_hand.is_button_pressed("ax_button") or _left_hand.is_button_pressed("primary_button") if _left_hand else false
 	var l_y = _left_hand.is_button_pressed("by_button") or _left_hand.is_button_pressed("secondary_button") if _left_hand else false
 	var l_menu = _left_hand.is_button_pressed("menu_button") if _left_hand else false
-
-	# --- Trigger Detectors ---
-	var r_trig = _right_hand.get_float("trigger") > 0.5 if _right_hand else false
-	var l_trig = _left_hand.get_float("trigger") > 0.5 if _left_hand else false
 
 	# (Chorded Trigger Chord moved to X+A)
 
@@ -1095,8 +1139,8 @@ func _check_trig(hand, ray, prev_var):
 func _click_at_ray(ray, is_press):
 	if _ui_visible and ray and ray.is_colliding():
 		var local_hit = _mind_node.to_local(ray.get_collision_point())
-		# Map from -0.35 to 0.35 (0.7m width) -> 0 to 700px
-		var x_2d: int = int((local_hit.x + 0.35) / 0.7 * 700.0)
+		# Map from -0.4 to 0.4 (0.8m width) -> 0 to 800px
+		var x_2d: int = int((local_hit.x + 0.4) / 0.8 * 800.0)
 		# Map from 0.6 to -0.6 (1.2m height) -> 0 to 1200px
 		var y_2d: int = int((0.6 - local_hit.y) / 1.2 * 1200.0)
 		
@@ -1159,6 +1203,24 @@ func _try_grab_object(hand: XRController3D):
 	if ray and ray.has_method("is_colliding") and ray.is_colliding():
 		var col = ray.get_collider()
 		var p = col.get_parent()
+
+		# 1. PUPPET MODE (Bone Grabbing)
+		if _is_puppet_mode_active and col is CollisionObject3D:
+			var hit_pos = ray.get_collision_point()
+			var skeleton = p.find_child("GeneralSkeleton", true, false) if p else null
+			if not skeleton and col.name == "Avatar": skeleton = col.find_child("GeneralSkeleton", true, false)
+
+			if skeleton:
+				var bone_idx = skeleton.find_bone_at_pos(hit_pos) if skeleton.has_method("find_bone_at_pos") else -1
+				if bone_idx != -1:
+					_grabbed_bone_name = skeleton.get_bone_name(bone_idx)
+					_grabbed_node = skeleton
+					_grabbed_hand = hand
+					_grabbed_offset = hand.global_position.distance_to(hit_pos)
+					_show_jen_notification("Puppet: " + _grabbed_bone_name, Color.GOLD)
+					return
+
+		# 2. STANDARD GRABS
 		if p and (p.name == "Mind" or p.name == "Display" or p.name == "LargeDebugWindow"):
 			_grabbed_node = p
 			_grabbed_hand = hand
@@ -1170,7 +1232,6 @@ func _try_grab_object(hand: XRController3D):
 			if _synapse: 
 				_synapse.call("inject_sensory_event", "[SENSORY: TICKLE | REGION: STOMACH | STATE: JOYFUL] Daniel is lifting and moving me! It feels ticklish and fun.")
 				_show_jen_notification("Tee-hee! That tickles!", Color.HOT_PINK)
-
 func _release_object():
 	_grabbed_node = null
 	_grabbed_hand = null
@@ -1205,12 +1266,12 @@ func _manipulate_object(delta, hand: XRController3D):
 		if abs(spin_tilt.y) > 0.1:
 			target_basis = target_basis.rotated(target_basis.x, spin_tilt.y * PI * 0.5)
 			
-		var current_quat = _grabbed_node.global_transform.basis.get_rotation_quaternion()
-		_grabbed_node.global_transform.basis = Basis(current_quat.slerp(target_basis.get_rotation_quaternion(), delta * 3.0))
-		
 		# Flip for quads (Godot standard is backward for quads)
 		if _grabbed_node.name == "Mind" or _grabbed_node.name == "LargeDebugWindow":
-			_grabbed_node.rotate_y(PI)
+			target_basis = target_basis.rotated(Vector3.UP, PI)
+
+		var current_quat = _grabbed_node.global_transform.basis.get_rotation_quaternion()
+		_grabbed_node.global_transform.basis = Basis(current_quat.slerp(target_basis.get_rotation_quaternion(), delta * 3.0))
 
 
 # --- UI INTERFACE ---
@@ -1253,7 +1314,6 @@ func _toggle_ui():
 
 func _start_recording_flow():
 	_is_recording = true
-	_recording_start_time = Time.get_ticks_msec()
 	if _aural: _aural.call("start_recording")
 	_show_user_notification("VOICE", "LISTENING...", Color.CYAN)
 	if is_instance_valid(_stt_status_label): 
@@ -1441,22 +1501,26 @@ func _play_next_idle():
 	var anim_path = _idle_anims[idx]
 	var anim = load(anim_path)
 	if anim: 
-		if not _anim_player.has_animation_library("lumax"):
-			_anim_player.add_animation_library("lumax", AnimationLibrary.new())
+		if not _anim_player.has_animation_library("mixamo"):
+			_anim_player.add_animation_library("mixamo", AnimationLibrary.new())
 			
-		var lib = _anim_player.get_animation_library("lumax")
-		if lib.has_animation("active_idle"): lib.remove_animation("active_idle")
-		lib.add_animation("active_idle", anim)
+		var lib = _anim_player.get_animation_library("mixamo")
+		if lib.has_animation("idle"): lib.remove_animation("idle")
+		lib.add_animation("idle", anim)
 		
 		# Ensure animations are mapped for this avatar
 		if _jen_avatar and _jen_avatar.has_method("force_resanitize_animations"):
 			_jen_avatar.call("force_resanitize_animations")
 			
-		# Silence the AnimationTree to prevent T-posing override during pool idles
-		var tree = _jen_avatar.get_node_or_null("AnimationTree") as AnimationTree if _jen_avatar else null
-		if tree: tree.active = false
-		
-		_anim_player.play("lumax/active_idle", 1.0)
+		# Allow the AnimationTree to play the updated idle animation
+		var tree = _jen_avatar.find_child("AnimationTree", true, false) as AnimationTree if _jen_avatar else null
+		if tree:
+			tree.active = true
+			var playback = tree.get("parameters/playback")
+			if playback:
+				playback.travel("Idle")
+		else:
+			_anim_player.play("mixamo/idle", 1.0)
 
 func _on_jen_response(data, _mode):
 	if data is Dictionary and data.get("type") == "presets":
@@ -1478,6 +1542,17 @@ func _on_jen_response(data, _mode):
 		text = str(data)
 
 	if _web_ui: _web_ui.call("add_message", "LUMAX", text)
+	
+	# V11.99: MULTIMODAL MANIFESTATION ENGINE (The Manifestor's Soul)
+	if "[DREAM]" in text:
+		_show_jen_notification("Analyzing Dream Manifestation...", Color.VIOLET)
+		if _synapse: _synapse.call("send_chat_message", "[SYSTEM: GENERATE_DREAM_ASSET]", "dream")
+	if "[MANIFEST_OBJECT]" in text:
+		var asset_name = text.split("[MANIFEST_OBJECT]")[1].split("]")[0].strip_edges()
+		_show_jen_notification("Summoning: " + asset_name, Color.CYAN)
+		if _synapse: _synapse.call("send_chat_message", "[SYSTEM: SPAWN_ASSET:" + asset_name + "]", "manifest")
+	if "[VISUALIZE]" in text:
+		_show_jen_notification("Visualizing Projection...", Color.AQUA)
 	
 	# Manifest Emotion (Visual/Social context)
 	if emotion != "NEUTRAL":
@@ -1543,8 +1618,9 @@ func _capture_and_send_vision(source: String):
 	
 	var image_data = {}
 	if source == "USER_POV":
-		# Capture the main compositor (everything the user sees)
-		var user_vp = get_viewport()
+		# BYPASS OPENXR: Capture from the mirrored SubViewport instead of the blocked main Viewport
+		var user_vp = get_tree().root.find_child("UserVisionViewport", true, false)
+		if not user_vp: user_vp = get_viewport() # Fallback
 		image_data = await vh._capture_from_viewport(user_vp)
 	else:
 		image_data = await vh._capture_jen_pov()
@@ -1666,8 +1742,11 @@ func _update_debug_log():
 	var start = max(0, logs.size() - 15)
 	for i in range(start, logs.size()):
 		var line = logs[i]
-		# Crude BBCode strip
-		line = line.replace("[color=green]", "").replace("[color=red]", "").replace("[color=cyan]", "").replace("[color=yellow]", "").replace("[color=white]", "").replace("[/color]", "")
-		log_text += line + "\n"
+		# Foolproof BBCode strip for Label3D (v1.1)
+		var clean_line = line
+		var tags = ["[color=green]", "[color=red]", "[color=cyan]", "[color=yellow]", "[color=white]", "[/color]"]
+		for tag in tags:
+			clean_line = clean_line.replace(tag, "")
+		log_text += clean_line + "\n"
 	
 	_debug_log_display.text = log_text
