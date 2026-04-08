@@ -1,0 +1,27 @@
+.env
+.env.*
+!.env.example
+cognee.local.env
+
+# Local Docker BuildKit cache (large; per-machine)
+build/docker-buildkit-cache/
+
+# Godot editor binaries dropped in repo root (keep tree clean)
+Godot_v4*.exe
+Godot_v4*.exe.*
+Godot_v4*_console.exe
+Godot_v4*_console.exe.*
+
+# Local scratch: screen captures, agent notes, non-app artifacts (see div/files/)
+div/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Redis runtime dumps (local container data)
+**/dump.rdb
+
+# Nested .env (root `.env` rules do not always apply to subdirs in all Git versions)
+**/.env
