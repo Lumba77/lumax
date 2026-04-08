@@ -11,11 +11,57 @@ signal space_synced(space_data: Dictionary)
 var peer = ENetMultiplayerPeer.new()
 var _port = 25565
 var _player_map = {}
+## From res://lumax_network_config.json (connect_quest.ps1 / Docker sentry) — default join host for NAT P2P.
+var nat_peer_default: String = ""
+
+func _load_lumax_network_config() -> void:
+	const path := "res://lumax_network_config.json"
+	if not FileAccess.file_exists(path):
+		return
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text()
+	f.close()
+	var j := JSON.new()
+	if j.parse(raw) != OK:
+		return
+	var data = j.data
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	if data.has("nat_peer_default"):
+		nat_peer_default = str(data["nat_peer_default"])
+	elif data.has("pc_lan_ip"):
+		nat_peer_default = str(data["pc_lan_ip"])
+
+## Same path Synapse uses after LAN auto-discover — no JSON needed on second+ launch.
+func _load_user_soul_host_fallback() -> void:
+	if nat_peer_default != "":
+		return
+	const p := "user://lumax_soul_host.txt"
+	if not FileAccess.file_exists(p):
+		return
+	var f := FileAccess.open(p, FileAccess.READ)
+	if f == null:
+		return
+	var line := str(f.get_as_text().strip_edges().split("\n")[0]).strip_edges()
+	if line.is_valid_ip_address() and line != "127.0.0.1":
+		nat_peer_default = line
+
+func set_nat_peer_default(ip: String) -> void:
+	if not ip.is_valid_ip_address() or ip == "127.0.0.1":
+		return
+	nat_peer_default = ip
 
 func _ready():
+	add_to_group("lumax_multiverse_network")
+	_load_lumax_network_config()
+	_load_user_soul_host_fallback()
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	print("LUMAX: Multiverse Network Core READY.")
+	if nat_peer_default != "":
+		print("LUMAX: NAT peer default: ", nat_peer_default, " (use join_space_default_peer or join_space)")
 
 func host_space():
 	peer.create_server(_port, 8)
@@ -27,6 +73,12 @@ func join_space(address: String):
 	peer.create_client(address, _port)
 	multiplayer.multiplayer_peer = peer
 	print("LUMAX: Attempting to synchronize with space at: ", address)
+
+func join_space_default_peer() -> void:
+	if nat_peer_default.is_empty():
+		push_warning("LUMAX: nat_peer_default empty — run connect_quest.ps1 or set lumax_network_config.json")
+		return
+	join_space(nat_peer_default)
 
 func _on_peer_connected(id: int):
 	print("LUMAX: Peer [", id, "] entered the luminance stream.")
@@ -61,7 +113,7 @@ func _spawn_proxy_avatar(id: int):
 	info.pixel_size = 0.002
 	info.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	info.position = Vector3(0, 1.8, 0) # Above head
-	info.text = "LUMAX_VISITOR"
+	info.text = "Guest / co-play"
 	proxy.add_child(info)
 	
 	print("LUMAX: Proxy avatar materialized with social status for user ", id)
@@ -114,7 +166,9 @@ func request_visit():
 	var id = multiplayer.get_remote_sender_id()
 	print("LUMAX: Peer ", id, " is requesting a virtual visit to your room.")
 	# This would trigger a notification in the UI
-	get_parent().call("on_visit_requested", id)
+	var p := get_parent()
+	if p and p.has_method("on_visit_requested"):
+		p.call("on_visit_requested", id)
 
 @rpc("any_peer", "call_local", "reliable")
 func accept_visit(id: int):
@@ -147,12 +201,13 @@ func get_global_vibe_stats() -> Dictionary:
 	return stats
 
 @rpc("any_peer", "unreliable")
-func sync_camera_texture(img_data: PackedByteArray):
+func sync_camera_texture(_img_data: PackedByteArray):
 	# Allows projecting 'Users cameras' onto virtual screens in other spaces
 	pass
 
 @rpc("any_peer", "call_local", "reliable")
 func sync_rave_pulse(beat_index: int):
 	# Synchronizes the 'Cloud Rave' pulse across the community
-	if get_parent().has_method("on_rave_pulse"):
-		get_parent().on_rave_pulse(beat_index)
+	var pr := get_parent()
+	if pr and pr.has_method("on_rave_pulse"):
+		pr.call("on_rave_pulse", beat_index)
