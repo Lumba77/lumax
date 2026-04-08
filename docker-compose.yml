@@ -1,11 +1,86 @@
+# Home Assistant: lumax_homeassistant (./Backend/HomeAssistant:/config), port 8123. HA_URL/HA_TOKEN for lumax_soul from .env.
+# Optional .env next to this file:
+#   LUMAX_MODELS_ROOT=D:/Lumax/models
+#   LUMAX_PIPER_MODEL_DIR=.../tts-piper-amy/en/en_US/amy/medium
+#   LUMAX_TURBO_MODEL_DIR=.../XTTSv2-Streaming-ONNX
+#   Ollama model blobs: set OLLAMA_MODELS=/app/models/Ollama (lumax_ollama_backup) + LUMAX_MODELS_ROOT -> /app/models (same D: tree as soul).
+#   Named volume `ollama` = /root/.ollama (keys etc.; shared lumax_ollama_backup + lumax_ops).
+# Build order (first run): docker compose build lumax_soul && docker compose build lumax_turbochat
+# Windows: .\build_lumax_unified.ps1 — reuses a local BuildKit cache so the big llama-cpp wheel is not re-downloaded every time.
+# In-stack Ollama: docker compose build lumax_ollama_backup && docker compose up -d (default stack; models under LUMAX_MODELS_ROOT/Ollama).
+# If you run Ollama on the host on :11434, stop one or the other to avoid a port bind conflict (or set OLLAMA_HOST=http://host.docker.internal:11434 and stop in-stack Ollama).
+#   OLLAMA_HEALTHCHECK_URL=http://127.0.0.1:11434/api/tags  — probe URL for lumax_ollama_backup healthcheck (container-internal host/port).
+# Pull models into the container: scripts/pull_ollama_backup_models.ps1
+
 services:
+  # --- OLLAMA: GPU inference for Ollama models (embeddings, helpers, cloud-router, sentry solver, etc.) ---
+  lumax_ollama_backup:
+    build:
+      context: ./Backend/Mind/Cognition/Ollama
+      dockerfile: Dockerfile
+    image: lumax_ollama_backup:latest
+    container_name: lumax_ollama_backup
+    ports:
+      - "11434:11434"
+    volumes:
+      - ${LUMAX_MODELS_ROOT:-/d/Lumax/models}:/app/models
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OLLAMA_MODELS=/app/models/Ollama
+      - OLLAMA_HEALTHCHECK_URL=${OLLAMA_HEALTHCHECK_URL:-http://127.0.0.1:11434/api/tags}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf $${OLLAMA_HEALTHCHECK_URL} || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
+    networks:
+      - lumax_local
+
+  # --- HOME ASSISTANT (config: Backend/HomeAssistant -> /config) ---
+  lumax_homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: lumax_homeassistant
+    restart: unless-stopped
+    ports:
+      - "${HOMEASSISTANT_PORT:-8123}:8123"
+    volumes:
+      - ./Backend/HomeAssistant:/config
+    environment:
+      - TZ=${TZ:-UTC}
+    networks:
+      - lumax_local
+
+  # --- THE MIND: COGNITIVE CORE ---
   lumax_soul:
     build:
       context: .
-      dockerfile: Dockerfile.soul
-    image: lumax_soul:patched
-    container_name: Lumax_Soul
+      dockerfile: Dockerfile.unified
+      # Persist BuildKit cache on disk (llama-cpp wheel ~1.5GB). First build downloads; later rebuilds reuse cache.
+      cache_from:
+        - type=local,src=${DOCKER_BUILDKIT_CACHE:-./build/docker-buildkit-cache}
+      cache_to:
+        - type=local,dest=${DOCKER_BUILDKIT_CACHE:-./build/docker-buildkit-cache},mode=max
+      args:
+        # Stock lumax_core does NOT include llama-cpp-python; leave 0. Set 1 only if your custom base image already has the cu124 wheel.
+        SKIP_LLAMA_CPP_REINSTALL: ${SKIP_LLAMA_CPP_REINSTALL:-0}
+    image: lumax_unified:latest
+    container_name: lumax_soul
+    depends_on:
+      lumax_memory:
+        condition: service_started
+      lumax_ollama_backup:
+        condition: service_healthy
     ports:
+      # Quest / same-LAN Godot: point res://lumax_network_config.json at this PC's LAN IP (soul_host / pc_lan_ip); client uses :8000 automatically.
       - "8000:8000"
     deploy:
       resources:
@@ -14,28 +89,100 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    command: ["python", "/app/Backend/Mind/Cognition/compagent.py"]
     volumes:
-      - ./Backend/Mind:/app/mind
-      - ./Backend/Body:/app/body
-      - /d/VR_AI_Forge_Data/models:/app/models
+      - .:/app
+      - ${LUMAX_MODELS_ROOT:-/d/Lumax/models}:/app/models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - LLM_PROVIDER=LOCAL
       - REDIS_HOST=lumax_memory
-      - OLLAMA_HOST=http://host.docker.internal:11434
-      - STT_SERVICE_URL=http://lumax_ears:8001/stt
-      - TTS_SERVICE_URL=http://lumax_mouth:8002/tts
+      # Default: in-stack Ollama (lumax_ollama_backup). Override with http://host.docker.internal:11434 for Windows host Ollama.
+      # slow_burn: [Errno -3] = DNS — soul must resolve OLLAMA_HOST (same compose network as lumax_ollama_backup, or host.docker.internal).
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://lumax_ollama_backup:11434}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OLLAMA_MAIN_MODEL=${OLLAMA_MAIN_MODEL:-qwen2.5:latest}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-moondream:latest}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text:latest}
+      - SMOLLM_HELPER_MODEL=${SMOLLM_HELPER_MODEL:-smollm2:latest}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - STT_SERVICE_URL=http://lumax_body:8001/stt
+      - TTS_SERVICE_URL=http://lumax_body:8002/tts
       - TTS_ENGINE=TURBO
-      - LUMAX_MODEL_PATH=/app/models/Mind/Cognition/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking_Q6_k.gguf
+      - CREATIVE_SERVICE_URL=http://lumax_creativity:8004
+      # Home Assistant (HomeCore). Default: in-stack service; override HA_URL in .env if HA runs on host only.
+      - HA_URL=${HA_URL:-http://lumax_homeassistant:8123/api}
+      - HA_TOKEN=${HA_TOKEN:-}
+      # Soul text: Lumnax runner with Gemma .gguf — override in .env
+      - LUMAX_MODEL_PATH=${LUMAX_MODEL_PATH:-/app/models/Mind/Cognition/gemma-4-E2B-it-heretic-ara.Q4_K_M.gguf}
+      - LUMAX_LOCAL_N_CTX=${LUMAX_LOCAL_N_CTX:-8192}
+      # Native GGUF vision: mmproj + Llava15ChatHandler (see LUMAX_MMPROJ_PATH or *mmproj*.gguf beside main .gguf)
+      - LUMAX_GGUF_NATIVE_VISION=${LUMAX_GGUF_NATIVE_VISION:-1}
+      - LUMAX_MMPROJ_PATH=${LUMAX_MMPROJ_PATH:-}
+      # Tiny vision: ONNX dir from Backend/Mind/Cognition/export_tiny_vision_onnx.py (or PyTorch checkpoint folder)
+      # https://huggingface.co/yesidcanoc/image-captioning-swin-tiny-distilgpt2
+      - LUMAX_LOCAL_VISION_ENABLED=${LUMAX_LOCAL_VISION_ENABLED:-false}
+      # - LUMAX_LOCAL_VISION_MODEL_PATH=${LUMAX_LOCAL_VISION_MODEL_PATH:-/app/models/Body/Eyes/image-captioning-swin-tiny-distilgpt2-onnx}
+      # - LUMAX_LOCAL_VISION_TORCH_DEVICE=${LUMAX_LOCAL_VISION_TORCH_DEVICE:-cpu}
+      # - LUMAX_LOCAL_VISION_TORCH_NUM_BEAMS=${LUMAX_LOCAL_VISION_TORCH_NUM_BEAMS:-4}
+      # Optional SmolLM digest after local caption (default off for English DistilGPT2 captions)
+      - LUMAX_LOCAL_VISION_SMOLLM_DIGEST=${LUMAX_LOCAL_VISION_SMOLLM_DIGEST:-false}
+      # Optional: require X-LUMAX-INTERNAL-KEY from lumax_embers for /internal/slow_burn/tick
+      - LUMAX_INTERNAL_SECRET=${LUMAX_INTERNAL_SECRET:-}
+      # Seconds without /compagent traffic before embers may train/memorize/director/dream
+      - LUMAX_SLOW_BURN_IDLE_SEC=${LUMAX_SLOW_BURN_IDLE_SEC:-480}
+      # Set to true to allow GPU dream on every 4th idle tick (phase dream)
+      - LUMAX_SLOW_BURN_DREAM=${LUMAX_SLOW_BURN_DREAM:-}
+      # Optional: inject MCP hub / agent tool output into soul context (~16k cap); Docker MCP hub = one collective MCP server (aggregated feed). Prefer JSON field mcp_context on /compagent
+      - LUMAX_MCP_CONTEXT=${LUMAX_MCP_CONTEXT:-}
+      # Optional: world/local news digest text (~12k cap); prefer JSON field news_context on /compagent
+      - LUMAX_NEWS_CONTEXT=${LUMAX_NEWS_CONTEXT:-}
+      # Optional: per-turn lore / Director curriculum excerpt (~12k); prefer JSON field lore_context on /compagent
+      - LUMAX_LORE_CONTEXT=${LUMAX_LORE_CONTEXT:-}
+      # Optional: primary_context_mode string; context_reservoirs via request body or LUMAX_CONTEXT_RESERVOIRS_JSON
+      - LUMAX_PRIMARY_CONTEXT_MODE=${LUMAX_PRIMARY_CONTEXT_MODE:-}
+      - LUMAX_CONTEXT_RESERVOIRS_JSON=${LUMAX_CONTEXT_RESERVOIRS_JSON:-}
+      - LUMAX_CONTEXT_ABILITY_MAP=${LUMAX_CONTEXT_ABILITY_MAP:-}
+      # Cloud repertoire (values from .env — see cloud_repertoire.py)
+      - LUMAX_REPERTOIRE_OPENAI_API_KEY=${LUMAX_REPERTOIRE_OPENAI_API_KEY:-}
+      - LUMAX_REPERTOIRE_OPENAI_MODEL=${LUMAX_REPERTOIRE_OPENAI_MODEL:-}
+      - LUMAX_REPERTOIRE_OPENAI_BASE_URL=${LUMAX_REPERTOIRE_OPENAI_BASE_URL:-}
+      - LUMAX_REPERTOIRE_GEMINI_API_KEY=${LUMAX_REPERTOIRE_GEMINI_API_KEY:-}
+      - LUMAX_REPERTOIRE_GEMINI_MODEL=${LUMAX_REPERTOIRE_GEMINI_MODEL:-}
+      - LUMAX_REPERTOIRE_GEMINI_BASE_URL=${LUMAX_REPERTOIRE_GEMINI_BASE_URL:-}
+      - LUMAX_REPERTOIRE_EXTRA_API_KEY=${LUMAX_REPERTOIRE_EXTRA_API_KEY:-}
+      - LUMAX_REPERTOIRE_EXTRA_MODEL=${LUMAX_REPERTOIRE_EXTRA_MODEL:-}
+      - LUMAX_REPERTOIRE_EXTRA_BASE_URL=${LUMAX_REPERTOIRE_EXTRA_BASE_URL:-}
+      - LUMAX_CHAT_PROVIDER=${LUMAX_CHAT_PROVIDER:-local}
+      - LUMAX_CLOUD_SPLICE_PERCENT=${LUMAX_CLOUD_SPLICE_PERCENT:-0}
+      - LUMAX_CLOUD_MAX_TOKENS=${LUMAX_CLOUD_MAX_TOKENS:-1024}
+      - LUMAX_CLOUD_TEMPERATURE=${LUMAX_CLOUD_TEMPERATURE:-0.7}
+      - LUMAX_CLOUD_HTTP_TIMEOUT=${LUMAX_CLOUD_HTTP_TIMEOUT:-120}
+      - LUMAX_OPENAI_DAILY_MAX_REQUESTS=${LUMAX_OPENAI_DAILY_MAX_REQUESTS:-0}
+      - LUMAX_OPENAI_USAGE_STATE_PATH=${LUMAX_OPENAI_USAGE_STATE_PATH:-}
+      - LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS=${LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS:-}
+      # Soft runtime governor (adaptive local budget + cloud spillover)
+      - LUMAX_SOFT_GOV_ENABLED=${LUMAX_SOFT_GOV_ENABLED:-true}
+      - LUMAX_SOFT_CPU_HOT_PCT=${LUMAX_SOFT_CPU_HOT_PCT:-550}
+      - LUMAX_SOFT_CPU_FORCE_CLOUD_PCT=${LUMAX_SOFT_CPU_FORCE_CLOUD_PCT:-850}
+      - LUMAX_SOFT_PROMPT_TOKENS_HIGH=${LUMAX_SOFT_PROMPT_TOKENS_HIGH:-12000}
+      - LUMAX_SOFT_FORCE_CLOUD_PROMPT_TOKENS=${LUMAX_SOFT_FORCE_CLOUD_PROMPT_TOKENS:-20000}
+      - LUMAX_SOFT_LOCAL_MAX_TOKENS_NORMAL=${LUMAX_SOFT_LOCAL_MAX_TOKENS_NORMAL:-768}
+      - LUMAX_SOFT_LOCAL_MAX_TOKENS_HOT=${LUMAX_SOFT_LOCAL_MAX_TOKENS_HOT:-320}
     networks:
       - lumax_local
 
-  lumax_ears:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: Lumax_Ears
+  # --- THE BODY: SENSORY & SPEECH ---
+  lumax_body:
+    image: lumax_unified:latest
+    container_name: lumax_body
+    depends_on:
+      lumax_turbochat:
+        condition: service_started
     ports:
-      - "8001:8001"
+      - "8001:8001" # EARS (STT)
+      - "8002:8002" # MOUTH (TTS)
     deploy:
       resources:
         reservations:
@@ -43,63 +190,133 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    command: ["python", "-c", "import sys; sys.path.insert(0, '/app/body'); import uvicorn; from body_interface import app; uvicorn.run(app, host='0.0.0.0', port=8001)"]
+    # EARS (:8001 STT) + MOUTH (:8002 TTS); script waits until EARS /health OK so a dead Whisper worker fails the container.
+    # Body stack = Python STT/TTS in Backend (UI lives under Frontend/Body/Webui etc.)
+    command: ["/bin/sh", "/app/Backend/Body/run_lumax_body_dual.sh"]
     volumes:
-      - ./Backend/Mind:/app/mind
-      - ./Backend/Body:/app/body
+      - .:/app
+      - lumax_body_cache:/root/.cache
+      - ${LUMAX_PIPER_MODEL_DIR:-/d/Lumax/models/Body/Mouth/Speech/tts-piper-amy/en/en_US/amy/medium}:/app/models/Mouth
     environment:
-      - MODE=EARS
+      - TURBO_URL=http://lumax_turbochat:8005
+      - TTS_ENGINE=TURBO
+      - DEFAULT_TTS_ENGINE=TURBO
+      - HF_HOME=/root/.cache/huggingface
+      - XDG_CACHE_HOME=/root/.cache
+      - PIPER_MODEL_PATH=/app/models/Mouth/en_US-amy-medium.onnx
+      # Turbo ONNX can take >15s per line on cold GPU; was false "unreachable" before Piper fallback.
+      - TURBO_HTTP_READ_TIMEOUT=${TURBO_HTTP_READ_TIMEOUT:-180}
     networks:
       - lumax_local
 
-  lumax_mouth:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: Lumax_Mouth
+  # --- THE ARTIST: CREATIVE IMAGINATION ---
+  lumax_creativity:
+    image: lumax_unified:latest
+    container_name: lumax_creativity
     ports:
-      - "8002:8002"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    command: ["python", "-c", "import sys; sys.path.insert(0, '/app/body'); import uvicorn; from body_interface import app; uvicorn.run(app, host='0.0.0.0', port=8002)"]
+      - "8004:8004"
+    command: ["python", "-c", "import sys; sys.path.append('/app/Backend/Mind/Creativity'); import uvicorn; from creative_service import app; uvicorn.run(app, host='0.0.0.0', port=8004)"]
     volumes:
-      - ./Backend/Mind:/app/mind
-      - ./Backend/Body:/app/body
-      - /d/VR_AI_Forge_Data/models/Body/Mouth/Speech/tts-piper-amy/en/en_US/amy/medium:/app/models/Mouth
+      - .:/app
+      - ${LUMAX_MODELS_ROOT:-/d/Lumax/models}:/app/models
     environment:
-      - MODE=MOUTH
+      - MODE=CREATIVITY
+      - LUMAX_CREATIVITY_IMAGEN_ROOT=${LUMAX_CREATIVITY_IMAGEN_ROOT:-/app/models/Imagen}
+      - LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR=${LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR:-/app/models/Mind/Creativity/Imagen/sdxl-turbo-tensorrt}
+      - LUMAX_CREATIVITY_DEFAULT_INFERENCE_STEPS=${LUMAX_CREATIVITY_DEFAULT_INFERENCE_STEPS:-5}
+      - LUMAX_CREATIVITY_DEFAULT_MODEL_TYPE=${LUMAX_CREATIVITY_DEFAULT_MODEL_TYPE:-turbo}
     networks:
       - lumax_local
 
-  lumax_chatterbox:
-    image: daswer123/xtts-api-server
-    container_name: Lumax_Chatterbox
+  # --- OPS: UTILITIES & HEALING ---
+  lumax_ops:
+    image: lumax_unified:latest
+    container_name: lumax_ops
+    depends_on:
+      lumax_ollama_backup:
+        condition: service_healthy
     ports:
-      - "8020:8020"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - "8080:8080" # WEB UI
+      - "8006:8006" # SENTRY
+    # RUN WEB APP AND SENTRY IN ONE CONTAINER (Web UI → Frontend/Body/Webui)
+    command: >
+      sh -c "python -m uvicorn web_app:app --app-dir /app/Frontend/Body/Webui --host 0.0.0.0 --port 8080 --log-level warning --no-access-log &
+             python /app/Backend/autonomous_sentry.py"
     volumes:
-      - /d/VR_AI_Forge_Data/models/Chatterbox/models--lucataco--xtts-v2:/app/data/models--lucataco--xtts-v2
+      - .:/app
+      - ollama:/root/.ollama
     environment:
-      - TTS_HOME=/app/data
+      - SOUL_URL=http://lumax_soul:8000
+      - EARS_URL=http://lumax_body:8001
+      # Web UI (8080): set LUMAX_WEBUI_PASSWORD in .env before exposing the port on untrusted networks.
+      - LUMAX_WEBUI_PASSWORD=${LUMAX_WEBUI_PASSWORD:-}
+      - LUMAX_WEBUI_SESSION_SECRET=${LUMAX_WEBUI_SESSION_SECRET:-}
+      - LUMAX_WEBUI_SESSION_MAX_AGE=${LUMAX_WEBUI_SESSION_MAX_AGE:-604800}
+      - LUMAX_WEBUI_SESSION_COOKIE=${LUMAX_WEBUI_SESSION_COOKIE:-lumax_webui_session}
+      - SENTRY_MODE=ACTIVE
+      # Backend preflight in sentry loop: light|standard|deep
+      - LUMAX_PREFLIGHT_LEVEL=${LUMAX_PREFLIGHT_LEVEL:-light}
+      - LUMAX_PREFLIGHT_AUTOHEAL=${LUMAX_PREFLIGHT_AUTOHEAL:-true}
+      # Agentic healer (safe action whitelist in Backend/preflight/agentic_solver.py)
+      - LUMAX_SENTRY_AGENTIC=${LUMAX_SENTRY_AGENTIC:-true}
+      - LUMAX_SENTRY_SOLVER_MODE=${LUMAX_SENTRY_SOLVER_MODE:-command}
+      # command mode is ideal for local ONNX/TensorRT runner wrappers.
+      - LUMAX_SENTRY_SOLVER_CMD=${LUMAX_SENTRY_SOLVER_CMD:-python /app/scripts/automation/solver_runner.py --model qwen2.5-coder-3b-instruct-onnx --prompt "{prompt}"}
+      # optional ollama fallback mode (same Ollama as lumax_soul by default):
+      - LUMAX_SENTRY_SOLVER_URL=${LUMAX_SENTRY_SOLVER_URL:-http://lumax_ollama_backup:11434/api/generate}
+      - LUMAX_SENTRY_SOLVER_MODEL=${LUMAX_SENTRY_SOLVER_MODEL:-qwen2.5-coder:latest}
+      - LUMAX_SENTRY_SOLVER_TIMEOUT_SEC=${LUMAX_SENTRY_SOLVER_TIMEOUT_SEC:-20}
+      # Pause switches for deployment windows / controlled rollouts.
+      - LUMAX_SENTRY_AGENTIC_PAUSED=${LUMAX_SENTRY_AGENTIC_PAUSED:-false}
+      - LUMAX_SENTRY_DEPLOY_LOCK_PATH=${LUMAX_SENTRY_DEPLOY_LOCK_PATH:-/tmp/lumax_deploy.lock}
+      - LUMAX_SENTRY_PAUSE_UNTIL_EPOCH=${LUMAX_SENTRY_PAUSE_UNTIL_EPOCH:-}
+      # Watchdog policy + feature registry + reporting cadence
+      - LUMAX_SENTRY_WATCHDOG_POLICY_PATH=${LUMAX_SENTRY_WATCHDOG_POLICY_PATH:-/app/ops/playbooks/watchdog_policy.json}
+      - LUMAX_SENTRY_UNSTABLE_FEATURES_PATH=${LUMAX_SENTRY_UNSTABLE_FEATURES_PATH:-/app/ops/playbooks/unstable_features.json}
+      - LUMAX_SENTRY_OUTBOX_DIR=${LUMAX_SENTRY_OUTBOX_DIR:-/app/Backend/preflight/outbox}
+      - LUMAX_SENTRY_INBOX_DIR=${LUMAX_SENTRY_INBOX_DIR:-/app/Backend/preflight/inbox}
+      - LUMAX_SENTRY_INTERVAL_SEC=${LUMAX_SENTRY_INTERVAL_SEC:-10}
+      - LUMAX_SENTRY_INSPECT_ALWAYS=${LUMAX_SENTRY_INSPECT_ALWAYS:-false}
+      # Shepherd roaming policy:
+      - LUMAX_SENTRY_ROAM_ENABLED=${LUMAX_SENTRY_ROAM_ENABLED:-true}
+      - LUMAX_SENTRY_ROAM_WHEN_IN_SERVICE=${LUMAX_SENTRY_ROAM_WHEN_IN_SERVICE:-true}
+      - LUMAX_SENTRY_ROAM_WHEN_NOT_IN_SERVICE=${LUMAX_SENTRY_ROAM_WHEN_NOT_IN_SERVICE:-true}
+      - LUMAX_SENTRY_ROAM_MIN_INTERVAL_SEC=${LUMAX_SENTRY_ROAM_MIN_INTERVAL_SEC:-60}
+      - LUMAX_SENTRY_ROAM_LOOP_BUDGET_MS=${LUMAX_SENTRY_ROAM_LOOP_BUDGET_MS:-700}
+      # Soul GPU watchdog: detect CPU-only llama runtime and self-heal.
+      - LUMAX_SENTRY_SOUL_GPU_GUARD_ENABLED=${LUMAX_SENTRY_SOUL_GPU_GUARD_ENABLED:-true}
+      - LUMAX_SENTRY_SOUL_GPU_GUARD_HOLD_LOOPS=${LUMAX_SENTRY_SOUL_GPU_GUARD_HOLD_LOOPS:-2}
+      - LUMAX_SENTRY_SOUL_GPU_GUARD_COOLDOWN_SEC=${LUMAX_SENTRY_SOUL_GPU_GUARD_COOLDOWN_SEC:-1800}
+      # rebuild | restart | off
+      - LUMAX_SENTRY_SOUL_GPU_GUARD_REMEDIATION=${LUMAX_SENTRY_SOUL_GPU_GUARD_REMEDIATION:-rebuild}
+      # Escalation for bigger model architecture proposals (approval-gated)
+      - LUMAX_SENTRY_ARCHITECT_ENABLED=${LUMAX_SENTRY_ARCHITECT_ENABLED:-false}
+      - LUMAX_SENTRY_ARCHITECT_CMD=${LUMAX_SENTRY_ARCHITECT_CMD:-}
+      # Optional spoken watchdog answers via Body TTS bridge (Turbo).
+      - LUMAX_SENTRY_SPEAK_ANSWERS=${LUMAX_SENTRY_SPEAK_ANSWERS:-true}
+      - LUMAX_SENTRY_TTS_URL=${LUMAX_SENTRY_TTS_URL:-http://lumax_body:8002/tts}
+      - LUMAX_SENTRY_TTS_ENGINE=${LUMAX_SENTRY_TTS_ENGINE:-TURBO}
+      - LUMAX_SENTRY_TTS_VOICE=${LUMAX_SENTRY_TTS_VOICE:-female}
+      - LUMAX_SENTRY_TTS_MAX_CHARS=${LUMAX_SENTRY_TTS_MAX_CHARS:-320}
+      # Quest link mode: lan | adb | auto. LAN avoids sentry forcing adb reverse metadata.
+      - LUMAX_QUEST_LINK_MODE=${LUMAX_QUEST_LINK_MODE:-lan}
+      - LUMAX_USE_ADB_REVERSE=${LUMAX_USE_ADB_REVERSE:-false}
+      # Optional: set in .env so Docker sentry can refresh lumax_network_config.json when Quest IP changes (pc_lan_ip / nat_peer_default).
+      - LUMAX_PC_LAN_IP=${LUMAX_PC_LAN_IP:-}
+      # Sentry: set false to never touch Godot/lumax_network_config.json or adb reverse (manual connect_quest.ps1 only).
+      - LUMAX_SENTRY_REFRESH_NETWORK_CONFIG=${LUMAX_SENTRY_REFRESH_NETWORK_CONFIG:-true}
+      # GPU guard remediations (restart/rebuild soul) are approval-gated; set true to allow auto-remediate when reason=gpu-guard.
+      - LUMAX_SENTRY_GPU_GUARD_ALLOW_AUTO_REMEDIATE=${LUMAX_SENTRY_GPU_GUARD_ALLOW_AUTO_REMEDIATE:-true}
     networks:
       - lumax_local
 
-  lumax_chatterbox_turbo:
+  # --- SPEECH ACCELERATION ---
+  lumax_turbochat:
     build:
       context: .
       dockerfile: Dockerfile.turbo
-    container_name: Lumax_Chatterbox_Turbo
+    image: lumax_turbochat:latest
+    container_name: lumax_turbochat
     ports:
       - "8005:8005"
     deploy:
@@ -112,26 +329,39 @@ services:
               count: all
               capabilities: [gpu]
     volumes:
-      - /d/VR_AI_Forge_Data/models/Body/Mouth/Speech/XTTSv2-Streaming-ONNX:/app/models
+      - ${LUMAX_TURBO_MODEL_DIR:-/d/Lumax/models/Body/Mouth/Speech/XTTSv2-Streaming-ONNX}:/app/models
     networks:
       - lumax_local
 
-  lumax_creativity:
-    image: vr-compagent-jen_unified_vessel:latest
-    container_name: Lumax_Creativity
-    ports:
-      - "8004:8004"
-    command: ["python", "-c", "import sys; sys.path.append('/app/mind/Creativity'); import uvicorn; from creative_service import app; uvicorn.run(app, host='0.0.0.0', port=8004)"]
+  # --- EMBERS: idle soul work (memorize / pan / director / optional dream) — no GPU ---
+  lumax_embers:
+    image: lumax_unified:latest
+    container_name: lumax_embers
+    depends_on:
+      lumax_soul:
+        condition: service_started
+      lumax_memory:
+        condition: service_started
+    command: ["python", "/app/Backend/Mind/Cognition/slow_burn_runner.py"]
     volumes:
-      - ./Backend/Mind:/app/mind
+      - .:/app
     environment:
-      - MODE=CREATIVITY
+      - SOUL_URL=http://lumax_soul:8000
+      - LUMAX_EMBERS_TICK_SEC=${LUMAX_EMBERS_TICK_SEC:-300}
+      - LUMAX_INTERNAL_SECRET=${LUMAX_INTERNAL_SECRET:-}
+      - LUMAX_EMBERS_HTTP_TIMEOUT=${LUMAX_EMBERS_HTTP_TIMEOUT:-180}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     networks:
       - lumax_local
+    deploy:
+      resources:
+        limits:
+          cpus: "0.35"
+          memory: 384M
 
   lumax_memory:
     image: redis:7-alpine
-    container_name: Lumax_Memory
+    container_name: lumax_memory
     ports:
       - "6379:6379"
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
@@ -141,20 +371,11 @@ services:
     networks:
       - lumax_local
 
-  lumax_web:
-    image: python:3.11-slim
-    container_name: Lumax_Web
-    ports:
-      - "8080:8080"
-    command: ["sh", "-c", "pip install fastapi uvicorn httpx && python /app/web_app.py"]
-    volumes:
-      - ./Backend/Body/web_app:/app
-    environment:
-      - SOUL_URL=http://lumax_soul:8000
-      - EARS_URL=http://lumax_ears:8001
-    networks:
-      - lumax_local
+volumes:
+  lumax_body_cache:
+  ollama:
 
 networks:
   lumax_local:
+    name: lumax_local
     driver: bridge
