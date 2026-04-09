@@ -1,6 +1,6 @@
 ## Ingress instruct
 
-Method references: [context_logmaster_merge.md](context_logmaster_merge.md) and [Methodology.md](Methodology.md).
+Method references: [context_logmaster_merge.md](div/files/context_logmaster_merge.md) and [Methodology.md](Methodology.md).
 
 # LUMAX: CORE DIRECTIVES & ARCHITECTURE
 
@@ -9,15 +9,14 @@ Method references: [context_logmaster_merge.md](context_logmaster_merge.md) and 
 
 ## 2. Technical Architecture
 ### Frontends (Multi-platform)
-- **Primary Focus:** Godot 4.2+ (VR) at `code/godot/vrcompagent/`.
-- **Planned:** Modular architecture designed to support multiple frontends connecting to the same backend "Brain".
-- **Tech Stack (VR):** OpenXR, Godot XR Tools, VRM models.
+- **Primary focus:** Godot **4.6.x** (VR) — project root **`Godot/`** (not legacy `code/godot/...` paths).
+- **Web UI:** **`Frontend/Body/Webui/`** (FastAPI + `lumax_ui_config.json` / branding).
+- **Tech stack (VR):** OpenXR, Godot XR Tools, VRM under **`Godot/vrm/`**.
 
 ### Backend (Dockerized Python)
-- **Logic Service (Port 8000):** FastAPI/LangChain at `code/langchain/compagent.py`.
-- **STT Service (Port 8001):** Faster-Whisper.
-- **TTS Service (Port 8002):** Kokoro.
-- **LLM Strategy:** Prefer Ollama (Local) via `qwen3-vl`. Use Gemini 3 (Cloud) when requested.
+- **Soul (port 8000):** FastAPI in **`Backend/Mind/Cognition/compagent.py`** (plus `MindCore.py`, `lumax_engine.py`, etc.).
+- **Body (8001/8002):** STT/TTS via **`Backend/Body/`** and unified **`lumax_body`** container.
+- **LLM strategy:** Ollama in-stack or host; cloud routing / `cloud_repertoire` when configured in `.env`.
 
 ## 3. Operational Discipline (The Leash)
 - **Role:** You handle all coding; the User handles project management/debugging.
@@ -59,7 +58,7 @@ Method references: [context_logmaster_merge.md](context_logmaster_merge.md) and 
 
 # Lumax New Frontier - Context Log
 
-Human session history (this file) pairs with in-engine logging: see [context_logmaster_merge.md](context_logmaster_merge.md) for `LogMaster`, `lumax_diagnostic.log`, and `godot.log`.
+Human session history (this file) pairs with in-engine logging: see [context_logmaster_merge.md](div/files/context_logmaster_merge.md) for `LogMaster`, `lumax_diagnostic.log`, and `godot.log`.
 
 - Session start [2026-03-16 16:27:32]
 - Task 1 end Standalone repo initialized and functional.
@@ -125,4 +124,13 @@ Human session history (this file) pairs with in-engine logging: see [context_log
 - Task 15 end Implemented **cloud_repertoire.py** (3 OpenAI-compatible slots), `**compagent*`* routing (`LUMAX_CHAT_PROVIDER`, splice %, `cloud_routing`), `**[CLOUD REPERTOIRE]**` sensory in `MindCore`, `/vitals` fields, `Synapse.gd` `cloud_routing`, `docker-compose` env comments. [Backend/Mind/Cognition/cloud_repertoire.py, Backend/Mind/Cognition/compagent.py, Backend/Mind/Cognition/MindCore.py, Godot/Soul/Synapse.gd, docker-compose.yml, LUMAX.md, context.md]
 - Session update [2026-04-04]
 - Task 16 end Documented **Docker MCP hub** as **one collective MCP server** (aggregated `mcp_context`); updated `VR_DISTRIBUTED_BODY`, `VR_DOCKER_MCP`, sensory MCP label, `LUMAX.md` §2, `docker-compose` comment. [Backend/Mind/Cognition/MindCore.py, LUMAX.md, docker-compose.yml, context.md]
+
+- Session start [2026-04-08]
+- Task 17 end Repo hygiene and handoff for next session.
+  - Git: root `.gitignore` hardened (`__pycache__`, `**/dump.rdb`, nested `**/.env`); stopped tracking secrets/artifacts; **`main`** on **`https://github.com/Lumba77/lumax`** aligned with local work; pushed WIP commits (backend/Webui/ops/scripts/tests + Godot Chosen + addons).
+  - Docker: compose default model paths use **`D:/Lumax/...`** when env unset; runtime uses **`.env`** `LUMAX_MODELS_ROOT` etc.
+  - Godot: **`Synapse.gd` / `MultiplayerManager.gd`** — LAN Soul discovery also sets **`nat_peer_default`**; optional **`lumax_network_config.json`** from **`connect_quest.ps1`**.
+  - Root tidy: logs, scratch text, donor `.gd`, `lazydocker.exe`, chatterbox JSON dumps, xtts wheel, etc. moved to **`div/files/`** (gitignored). **Godot 4.6.2** EXEs moved to **`div/files/godot/`**; **4.2.2** console exe removed.
+  - Docs: **`HANDOFF.md`** rewritten for current layout; **`context.md`** ingress paths and Godot/backend pointers updated; this log appended.
+  - Related files: [.gitignore, docker-compose.yml, HANDOFF.md, context.md, Godot/Soul/Synapse.gd, Godot/Nexus/MultiplayerManager.gd, div/files/]
 

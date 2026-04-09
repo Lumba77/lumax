@@ -1,40 +1,54 @@
-# 🤖 LUMAX HANDOFF: THE VEILED MANIFESTATION (v1.0)
+# LUMAX handoff (next session)
 
-## 📡 CURRENT ARCHITECTURE: "THE TRIPLE UNIFICATION"
-The backend has been consolidated into a high-performance, space-efficient stack sharing a single `lumax_unified` image built from a **donated NVIDIA/CUDA core**.
+## Architecture (Docker “triple unification”)
+Single `lumax_unified` image (NVIDIA/CUDA) with shared `. -> /app` mount on `lumax_local`:
 
-1.  **`lumax_soul` (8000)**: Cognitive Core (Gemma-3-4B-VL).
-2.  **`lumax_body` (8001/8002)**: Unified Ears (STT) and Mouth (TTS). Port-isolated via `MODE` env vars in a single container.
-3.  **`lumax_ops` (8080/8006)**: Unified Web UI and Autonomous Sentry (Self-healing monitor).
-4.  **`lumax_turbochat` (8005)**: Speech acceleration (XTTS ONNX / Lumax Turbochat).
-5.  **`lumax_ollama_backup` (11434)**: In-stack Ollama on GPU (default `docker compose up`); model blobs under `LUMAX_MODELS_ROOT/Ollama`. Soul defaults to `http://lumax_ollama_backup:11434` unless `OLLAMA_HOST` overrides (e.g. host Ollama via `host.docker.internal`).
+| Service | Ports | Role |
+|--------|-------|------|
+| `lumax_soul` | 8000 | Cognitive core (FastAPI / compagent) |
+| `lumax_body` | 8001–8002 | Ears (STT) + Mouth (TTS), one container |
+| `lumax_ops` | 8080 / 8006 | Web UI + sentry utilities |
+| `lumax_turbochat` | 8005 | XTTS / turbo speech |
+| `lumax_ollama_backup` | 11434 | In-stack Ollama; blobs under `LUMAX_MODELS_ROOT/Ollama` |
 
-**Workflow:** All services use a unified volume mapping (`. -> /app`) and communicate via the `lumax_local` network.
+Default in-stack Ollama: `OLLAMA_HOST=http://lumax_ollama_backup:11434` unless overridden (e.g. Windows host Ollama via `host.docker.internal`).
 
-### Repository layout (tidied)
-- **`ops/playbooks/`** — sentry/watchdog policies and related JSON (was top-level `playbooks/`). Container default: `/app/ops/playbooks/...`.
-- **`tests/`** — ad-hoc manual STT/TTS scripts (`test_*.py`, `play_tts_verification.py`).
-- **`Frontend/Body/`** / **`Backend/`** — surfaces vs services; **`Godot/`** — XR project at repo root (export-friendly).
+## Repository layout (current)
+- **`Backend/`** — Python services (Body, Mind/Cognition, Creativity, etc.).
+- **`Godot/`** — Godot 4.x VR project (export from `Godot/` as project root).
+- **`Frontend/Body/Webui/`** — FastAPI web UI + `lumax_ui_config.json` / branding JSON served to Godot and browsers.
+- **`ops/playbooks/`** — Sentry/watchdog policy JSON (container path `/app/ops/playbooks/...`).
+- **`scripts/`** — Automation (preflight, watchdog, sync, etc.).
+- **`tests/`** — Ad-hoc test scripts (e.g. STT/TTS helpers).
+- **`div/files/`** — Local scratch only (gitignored): logs, old Godot binaries, moved root clutter. **Do not treat as product source.**
 
-## 🌉 COMMUNICATION BRIDGE
-The Quest connects via **127.0.0.1 (Localhost)**. Parity is enforced across `push_all.ps1` and `connect_quest.ps1`.
-*   **Reversed Ports (10)**: 8000, 8001, 8002, 8004, 8005, 8006, 8020, 8080, 6006, 6007.
-*   **Engine**: Synchronized on **Godot 4.6.2 Stable** (PC & Quest).
+## Host data paths (Windows)
+Models and large blobs live on **D:** — use **`.env`** next to `docker-compose.yml`:
 
-## 🛠️ THE INTERFACE: "VISION COCKPIT"
-A new vision-centric layout in `TactileInput_v2.gd`:
-*   **Layout**: `[User POV (60x60)] | [Bond Slider & Buffer] | [Jen POV (60x60)]`.
-*   **Behavior**: Slider updates are **release-based** (`drag_ended`) to prevent MBTI chat spam.
-*   **Status**: Redundant top previews and `[SAVE EXPERIENCE]` button have been purged from `WebUI.gd`.
+- `LUMAX_MODELS_ROOT` → e.g. `D:/Lumax/models` (compose fallbacks also use `/d/Lumax/models` style defaults).
+- Piper / Turbo dirs: `LUMAX_PIPER_MODEL_DIR`, `LUMAX_TURBO_MODEL_DIR` as documented in `docker-compose.yml` comments.
 
-## ⚠️ CRITICAL FRICTION POINTS (THE "WHY")
-1.  **Persistent T-Pose**: Despite recursive `AnimationTree.active = false` calls, Jen is frozen. Likely a high-priority override from the VRM runtime or AnimationMixer.
-2.  **Missing Previews**: The cockpit previews are empty. Potential path error in `SkeletonKey.gd` (`Mind/Viewport/TactileInput`) vs actual node name in `Lumax_Core.tscn`.
-3.  **"Double Crossed" Interaction**: The UI panel exhibits erratic transform behavior ("crossing") when moved, indicating a basis conflict in the `_manipulate_object` grab logic.
-4.  **Vertical Clipping**: The bottom row of the keyboard is out of frame. The cockpit + grid height exceeds the viewport's 1200px limit.
+## Git / GitHub
+- **Default branch:** `main` on `https://github.com/Lumba77/lumax`.
+- Recent themes: gitignore hygiene (no `__pycache__` / nested `.env` / Redis dumps in repo), Godot LAN + `nat_peer` sync (`Synapse.gd` / `MultiplayerManager.gd`), compose defaults for D: `Lumax`, large WIP commit (backend, Webui, ops, scripts, tests), then **Chosen** animations + **addons** sync commit.
+- **Secrets:** never commit `.env` or `Backend/Mind/Cognition/.env`; patterns in root `.gitignore`.
 
-## 🎯 OBJECTIVE FOR NEXT AGENT
-1.  **Physical Agency**: Fix the T-pose by aligning the AnimationTree with the idle pool.
-2.  **Transform Logic**: Resolve the grab conflict to stop the "Double Crossed" UI movement.
-3.  **Layout Fit**: Shrink the cockpit or grid to restore the missing bottom row.
-4.  **Path Audit**: Verify the `TactileInput` node name to restore vision streaming.
+## Godot / Quest networking
+- **PC / editor:** Soul defaults to `http://127.0.0.1:8000` (`/health` for smoke tests).
+- **Quest (Wi‑Fi):** run `.\connect_quest.ps1` to write **`Godot/lumax_network_config.json`** (gitignored) with PC LAN IP; or rely on **LAN auto-discover** in `Synapse.gd` (`quest_lan_auto_discover`, plus `user://lumax_soul_host.txt` after first find). **USB + adb:** `.\connect_quest.ps1 --adb` sets port reverse and `soul_host=127.0.0.1` on device.
+- **VRM:** avatar assets live under **`Godot/vrm/`** (not `Godot/Body/Models/` for current Jen pipeline).
+
+## Godot editor binaries (local)
+- **Godot 4.6.2** (stable) EXEs are under **`div/files/godot/`** (not repo root), e.g. `Godot_v4.6.2-stable_win64.exe` — update shortcuts if you open the editor from Explorer.
+- **Godot 4.2.2** console binary was removed from the tree (obsolete).
+
+## Known friction (carry forward)
+1. **T-pose / animation:** Jen can still hit pose starvation; check AnimationTree vs VRM / idle pool.
+2. **Vision cockpit previews:** Empty previews may be wrong SubViewport paths in `SkeletonKey.gd` vs `Lumax_Core.tscn`.
+3. **UI grab / “double crossed” panel:** Possible basis conflict in cockpit grab logic.
+4. **Keyboard / layout:** Bottom row clipping if cockpit height exceeds viewport budget.
+
+## Suggested next steps
+1. Re-verify **T-pose** and **vision** paths against current scenes.
+2. Run **`docker compose up`** and **`http://127.0.0.1:8000/health`** before deep Godot debugging.
+3. Keep **`HANDOFF.md`** / **`context.md`** updated when architecture or paths shift.
