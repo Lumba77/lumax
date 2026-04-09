@@ -1,14 +1,14 @@
-[gd_scene load_steps=3 format=3 uid="uid://c3uoohvnshach"]
+[gd_scene format=3 uid="uid://c3uoohvnshach"]
 
 [ext_resource type="Script" uid="uid://c8vnltn217quj" path="res://addons/godot-xr-tools/hands/collision_hand.gd" id="1_so3hf"]
 [ext_resource type="Shape3D" uid="uid://uc7owi5j7ib0" path="res://addons/godot-xr-tools/hands/scenes/collision/hand_palm.shape" id="2_vvxfo"]
 
-[node name="CollisionHandRight" type="AnimatableBody3D"]
+[node name="CollisionHandRight" type="AnimatableBody3D" unique_id=453726870]
 collision_layer = 131072
 collision_mask = 262175
 sync_to_physics = false
 script = ExtResource("1_so3hf")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1437227938]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.03, -0.05, 0.11)
 shape = ExtResource("2_vvxfo")

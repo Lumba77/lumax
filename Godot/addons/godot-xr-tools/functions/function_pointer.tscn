@@ -1,16 +1,66 @@
-[gd_scene load_steps=6 format=3 uid="uid://cqhw276realc"]
+[gd_scene format=3 uid="uid://cqhw276realc"]
 
-[ext_resource type="Material" path="res://addons/godot-xr-tools/materials/pointer.tres" id="1"]
 [ext_resource type="Script" uid="uid://cvnagt08r6ul4" path="res://addons/godot-xr-tools/functions/function_pointer.gd" id="2"]
+
+[sub_resource type="Shader" id="Shader_meta_pointer"]
+code = "shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix, depth_test_disabled, depth_draw_never;
+
+uniform vec4 beam_color : source_color = vec4(1.0, 1.0, 1.0, 0.5);
+uniform float beam_len_m = 1.0;
+uniform float fade_m = 0.03;
+
+void fragment() {
+	float len = max(beam_len_m, 0.06);
+	float t = clamp((VERTEX.z + (len * 0.5)) / len, 0.0, 1.0);
+	float fade_n = clamp(fade_m / len, 0.02, 0.25);
+	float f0 = smoothstep(0.0, fade_n, t);
+	float f1 = 1.0 - smoothstep(1.0 - fade_n, 1.0, t);
+	float core = max(f0 * f1, 0.45);
+	ALBEDO = beam_color.rgb;
+	ALPHA = beam_color.a * core;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_pointer_white"]
+render_priority = 64
+shader = SubResource("Shader_meta_pointer")
+shader_parameter/beam_color = Color(1, 1, 1, 0.5)
+shader_parameter/beam_len_m = 1.0
+shader_parameter/fade_m = 0.03
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_pointer_blue"]
+render_priority = 64
+shader = SubResource("Shader_meta_pointer")
+shader_parameter/beam_color = Color(0.192157, 0.521569, 1, 0.5)
+shader_parameter/beam_len_m = 1.0
+shader_parameter/fade_m = 0.03
+
+[sub_resource type="Shader" id="Shader_target_overlay"]
+code = "shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix, depth_test_disabled, depth_draw_never;
+
+uniform vec4 dot_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+
+void fragment() {
+	ALBEDO = dot_color.rgb;
+	ALPHA = dot_color.a;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_target_white"]
+render_priority = 127
+shader = SubResource("Shader_target_overlay")
+shader_parameter/dot_color = Color(1, 1, 1, 1)
 
 [sub_resource type="BoxMesh" id="1"]
 resource_local_to_scene = true
-material = ExtResource("1")
-size = Vector3(0.002, 0.002, 10)
+material = SubResource("ShaderMaterial_pointer_white")
+size = Vector3(0.004, 0.004, 10)
 subdivide_depth = 20
 
 [sub_resource type="SphereMesh" id="2"]
-material = ExtResource("1")
+material = SubResource("ShaderMaterial_target_white")
 radius = 0.05
 height = 0.1
 radial_segments = 16
@@ -19,26 +69,34 @@ rings = 8
 [sub_resource type="SphereShape3D" id="SphereShape3D_k3gfm"]
 radius = 0.2
 
-[node name="FunctionPointer" type="Node3D"]
+[node name="FunctionPointer" type="Node3D" unique_id=1616247568]
 script = ExtResource("2")
+show_laser = 2
+laser_length = 1
+laser_material = SubResource("ShaderMaterial_pointer_white")
+laser_hit_material = SubResource("ShaderMaterial_pointer_white")
+laser_pressed_material = SubResource("ShaderMaterial_pointer_blue")
+show_target = true
+target_radius = 0.012
+target_material = SubResource("ShaderMaterial_target_white")
 
-[node name="RayCast" type="RayCast3D" parent="."]
+[node name="RayCast" type="RayCast3D" parent="." unique_id=647573664]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.013, 0)
 target_position = Vector3(0, 0, -10)
 collision_mask = 5242880
 
-[node name="Laser" type="MeshInstance3D" parent="."]
+[node name="Laser" type="MeshInstance3D" parent="." unique_id=1019101899]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.013, -5)
 cast_shadow = 0
 mesh = SubResource("1")
 
-[node name="Target" type="MeshInstance3D" parent="."]
+[node name="Target" type="MeshInstance3D" parent="." unique_id=439473242]
 visible = false
 mesh = SubResource("2")
 
-[node name="SuppressArea" type="Area3D" parent="."]
+[node name="SuppressArea" type="Area3D" parent="." unique_id=766551663]
 collision_layer = 0
 collision_mask = 4194304
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="SuppressArea"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="SuppressArea" unique_id=603923719]
 shape = SubResource("SphereShape3D_k3gfm")

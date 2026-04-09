@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://do1wif8rpqtwj"]
+[gd_scene format=3 uid="uid://do1wif8rpqtwj"]
 
 [ext_resource type="Script" uid="uid://f60byrk7xjak" path="res://addons/godot-xr-tools/functions/function_gaze_pointer.gd" id="1_ipkdr"]
 [ext_resource type="Material" path="res://addons/godot-xr-tools/materials/pointer.tres" id="2_ndm62"]
@@ -32,34 +32,34 @@ shader_parameter/fade = 0.05
 shader_parameter/radius = 0.8
 shader_parameter/width = 0.2
 
-[node name="FunctionGazePointer" type="Node3D"]
+[node name="FunctionGazePointer" type="Node3D" unique_id=1250797864]
 script = ExtResource("1_ipkdr")
 show_laser = 0
 show_target = true
 
-[node name="RayCast" type="RayCast3D" parent="."]
+[node name="RayCast" type="RayCast3D" parent="." unique_id=1403185918]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.013, 0)
 target_position = Vector3(0, 0, -10)
 collision_mask = 5242880
 
-[node name="Laser" type="MeshInstance3D" parent="."]
+[node name="Laser" type="MeshInstance3D" parent="." unique_id=1250377868]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.013, -5)
 visible = false
 cast_shadow = 0
 mesh = SubResource("1")
 
-[node name="Target" type="MeshInstance3D" parent="."]
+[node name="Target" type="MeshInstance3D" parent="." unique_id=1240146552]
 visible = false
 mesh = SubResource("2")
 
-[node name="SuppressArea" type="Area3D" parent="."]
+[node name="SuppressArea" type="Area3D" parent="." unique_id=1448808553]
 collision_layer = 0
 collision_mask = 4194304
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="SuppressArea"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="SuppressArea" unique_id=1525429617]
 shape = SubResource("SphereShape3D_k3gfm")
 
-[node name="Visualise" type="MeshInstance3D" parent="."]
+[node name="Visualise" type="MeshInstance3D" parent="." unique_id=2134370944]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1)
 cast_shadow = 0
 mesh = SubResource("QuadMesh_lulcv")

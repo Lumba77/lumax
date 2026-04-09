@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://42xbeno6pt3y"]
+[gd_scene format=3 uid="uid://42xbeno6pt3y"]
 
 [ext_resource type="Material" path="res://addons/godot-xr-tools/materials/pointer.tres" id="1"]
 [ext_resource type="Script" uid="uid://dycttwespa005" path="res://addons/godot-xr-tools/desktop-support/function_desktop_pointer.gd" id="1_fkfo7"]
@@ -19,7 +19,7 @@ rings = 8
 [sub_resource type="SphereShape3D" id="SphereShape3D_8btxb"]
 radius = 0.2
 
-[node name="FunctionDesktopPointer" type="Node3D"]
+[node name="FunctionDesktopPointer" type="Node3D" unique_id=1676490022]
 script = ExtResource("1_fkfo7")
 y_offset = 0.0
 active_button_action = "trigger_left"
@@ -28,24 +28,24 @@ laser_length = 1
 show_target = true
 target_radius = 0.01
 
-[node name="RayCast" type="RayCast3D" parent="."]
+[node name="RayCast" type="RayCast3D" parent="." unique_id=243915138]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
 target_position = Vector3(0, 0, -10)
 collision_mask = 5242880
 
-[node name="Laser" type="MeshInstance3D" parent="."]
+[node name="Laser" type="MeshInstance3D" parent="." unique_id=772418316]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, -5)
 visible = false
 cast_shadow = 0
 mesh = SubResource("BoxMesh_ctrty")
 
-[node name="Target" type="MeshInstance3D" parent="."]
+[node name="Target" type="MeshInstance3D" parent="." unique_id=1810399937]
 visible = false
 mesh = SubResource("SphereMesh_6cghy")
 
-[node name="SuppressArea" type="Area3D" parent="."]
+[node name="SuppressArea" type="Area3D" parent="." unique_id=1319735199]
 collision_layer = 0
 collision_mask = 4194304
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="SuppressArea"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="SuppressArea" unique_id=1675753658]
 shape = SubResource("SphereShape3D_8btxb")

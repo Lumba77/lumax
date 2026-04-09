@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3 uid="uid://wtpox7m5vu2b"]
+[gd_scene format=3 uid="uid://wtpox7m5vu2b"]
 
 [ext_resource type="Script" uid="uid://ook5rcwquue" path="res://addons/godot-xr-tools/effects/fade.gd" id="1_6667f"]
 [ext_resource type="Shader" uid="uid://crgou0mlv2l0s" path="res://addons/godot-xr-tools/effects/fade.gdshader" id="1_tjen8"]
@@ -12,11 +12,11 @@ render_priority = 50
 shader = ExtResource("1_tjen8")
 shader_parameter/albedo = Color(0, 0, 0, 1)
 
-[node name="Fade" type="Node3D"]
+[node name="Fade" type="Node3D" unique_id=1883081989]
 script = ExtResource("1_6667f")
-cull_mask = 1
 
-[node name="FadeMesh" type="MeshInstance3D" parent="."]
+[node name="FadeMesh" type="MeshInstance3D" parent="." unique_id=131236147]
 visible = false
+layers = 2
 mesh = SubResource("QuadMesh_aqp6r")
 surface_material_override/0 = SubResource("ShaderMaterial_xjgy8")
