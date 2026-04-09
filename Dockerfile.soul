@@ -1,4 +1,4 @@
-FROM lumax-lumax_chatterbox_turbo:latest
+FROM lumax_turbochat:latest
 
 WORKDIR /app
 
@@ -20,7 +20,10 @@ RUN ln -s /usr/local/cuda-12.4 /usr/local/cuda || true
 
 # Install llama-cpp-python with CUDA support using PRE-BUILT WHEELS to save user data
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+    pip install --upgrade --force-reinstall --no-cache-dir \
+      --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+      --extra-index-url https://pypi.org/simple \
+      llama-cpp-python
 
 EXPOSE 8000
 CMD ["python", "/app/mind/Cognition/compagent.py"]

@@ -1,0 +1,44 @@
+FROM lumax_core:latest
+
+WORKDIR /app
+
+# Install system dependencies for build and runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    portaudio19-dev \
+    libasound2-dev \
+    libsndfile1-dev \
+    build-essential \
+    cmake \
+    git \
+    ffmpeg \
+    espeak-ng \
+    adb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Donor image already contains the heavy Python stack.
+# Split layers so editing pip deps does not always rerun llama-cpp.
+# Do NOT use --no-cache-dir here: it disables the mounted pip cache and forces a full ~1.5GB wheel re-download every build.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install compressed-tensors "optimum[onnxruntime]"
+
+# Reinstall CUDA wheel only when needed. If lumax_core already ships matching cu124 llama-cpp, set build-arg below to skip.
+ARG SKIP_LLAMA_CPP_REINSTALL=0
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ "$SKIP_LLAMA_CPP_REINSTALL" = "1" ]; then \
+      echo "SKIP_LLAMA_CPP_REINSTALL=1: using llama-cpp-python from lumax_core"; \
+    else \
+      python -m pip uninstall -y llama-cpp-python || true && \
+      python -m pip install \
+        --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+        --extra-index-url https://pypi.org/simple \
+        llama-cpp-python; \
+    fi
+
+COPY Backend/Body/run_lumax_body_dual.sh /app/Backend/Body/run_lumax_body_dual.sh
+RUN chmod +x /app/Backend/Body/run_lumax_body_dual.sh
+
+# Expose all used ports (8001=EARS/STT, 8002=MOUTH/TTS)
+EXPOSE 8000 8001 8002 8004 8006 8080
+
+# Default CMD (can be overridden)
+CMD ["python", "Backend/Mind/Cognition/compagent.py"]

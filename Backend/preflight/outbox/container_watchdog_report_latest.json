@@ -1,0 +1,18 @@
+{
+  "timestamp_utc": "2026-04-09T00:11:40.582589+00:00",
+  "docker_ps": "docker ps failed: [Errno 2] No such file or directory: 'docker'",
+  "service_inspect": {
+    "SOUL": "inspect failed: [Errno 2] No such file or directory: 'docker'",
+    "EARS": "inspect failed: [Errno 2] No such file or directory: 'docker'",
+    "MOUTH": "inspect failed: [Errno 2] No such file or directory: 'docker'",
+    "TURBO": "inspect failed: [Errno 2] No such file or directory: 'docker'",
+    "OPS": "inspect failed: [Errno 2] No such file or directory: 'docker'"
+  },
+  "recent_logs": {
+    "SOUL": "logs failed: [Errno 2] No such file or directory: 'docker'",
+    "EARS": "logs failed: [Errno 2] No such file or directory: 'docker'",
+    "MOUTH": "logs failed: [Errno 2] No such file or directory: 'docker'",
+    "TURBO": "logs failed: [Errno 2] No such file or directory: 'docker'",
+    "OPS": "logs failed: [Errno 2] No such file or directory: 'docker'"
+  }
+}

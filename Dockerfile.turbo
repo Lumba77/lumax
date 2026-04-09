@@ -1,7 +1,16 @@
-FROM lumax_soul:mega-patched as lumax-turbo
+# Requires: docker compose build lumax_soul   (creates lumax_unified:latest) before building this image.
+FROM lumax_unified:latest
 
 WORKDIR /app
-COPY ./Backend/Body/chatterbox_turbo_server.py /app/main.py
+COPY ./Backend/Body/turbochat_server.py /app/main.py
 
+# Turbo runtime deps for mounted XTTSv2-Streaming-ONNX code.
+RUN python -m pip install --no-cache-dir \
+    librosa numpy onnxruntime scipy soundfile tokenizers \
+    jieba pypinyin hangul_romanize jamo nltk "g2pkk>=0.1.1" \
+    bangla bnnumerizer bnunicodenormalizer "unidecode>=1.3.2" num2words "spacy[ja]>=3" \
+    "mecab-python3>=1.0.9" "unidic-lite==1.0.8" cutlet
+
+EXPOSE 8005
 ENTRYPOINT ["python"]
 CMD ["main.py"]

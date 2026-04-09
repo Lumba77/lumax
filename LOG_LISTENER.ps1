@@ -1,3 +1,5 @@
+$RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
+$GodotLogFile = Join-Path $RepoRoot "REMOTE_GODOT.log"
 $Listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 6007)
 $Listener.Start()
 Write-Host "📡 Ready: Awaiting Godot Debug Packet on Port 6007..."
@@ -15,7 +17,7 @@ while ($true) {
                 if ($Log) {
                     Write-Host ">>> $Log"
                     $TotalLogs += "$Log`n"
-                    $TotalLogs | Out-File -FilePath "C:\Users\lumba\Program\Lumax\REMOTE_GODOT.log" -Encoding utf8
+                    $TotalLogs | Out-File -FilePath $GodotLogFile -Encoding utf8
                 }
             }
             Start-Sleep -Milliseconds 50

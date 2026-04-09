@@ -1,6 +1,14 @@
 FROM lumax_core:latest as lumax-runner
 
 WORKDIR /app
+
+# Install system dependencies for audio and mecab
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    portaudio19-dev \
+    libasound2-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements_lumax.txt .
 # Install main requirements using the existing environment from donor
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -9,7 +17,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Install llama-cpp-python with CUDA support using PRE-BUILT WHEELS to save user data
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+    pip install --upgrade --force-reinstall --no-cache-dir \
+      --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+      --extra-index-url https://pypi.org/simple \
+      llama-cpp-python
 
 # Force ORT GPU upgrade
 RUN --mount=type=cache,target=/root/.cache/pip \

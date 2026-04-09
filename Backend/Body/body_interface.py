@@ -27,14 +27,25 @@ app.add_middleware(
 
 # Environment State
 MODE = os.getenv("MODE", "EARS") # Default to EARS if not set
+logger.info("BodyInterface process MODE=%s (EARS=STT/whisper, MOUTH=TTS/forward)", MODE)
 
-# Hostnames (May be flaky in some Docker setups)
-CHATTERBOX_URL = "http://lumax_chatterbox:8020"
-TURBO_URL = "http://lumax_chatterbox_turbo:8005"
+# Docker DNS names (same compose network). Do not hardcode 172.x — subnet changes per bridge.
+# Optional full XTTS on 8020: set CHATTERBOX_URL if you add a separate XTTS service (not in default compose).
+TURBO_URL = os.getenv("TURBO_URL", "http://lumax_turbochat:8005").rstrip("/")
+CHATTERBOX_URL = os.getenv("CHATTERBOX_URL", "").rstrip("/")
+# Turbo ONNX / first GPU inference often exceeds 15s; short read timeout looked like "unreachable" in logs.
+_TURBO_CONNECT_TIMEOUT = float(os.getenv("TURBO_HTTP_CONNECT_TIMEOUT", "10"))
+_TURBO_READ_TIMEOUT = float(os.getenv("TURBO_HTTP_READ_TIMEOUT", "180"))
 
-# Direct IPs (Static within the bridge network if not recreated often)
-CHATTERBOX_IP = "http://172.18.0.9:8020"
-TURBO_IP = "http://172.18.0.8:8005"
+
+def _turbo_client_timeout() -> httpx.Timeout:
+    return httpx.Timeout(connect=_TURBO_CONNECT_TIMEOUT, read=_TURBO_READ_TIMEOUT)
+# Extra fallbacks, e.g. host.docker.internal or a LAN IP — comma-separated base URLs without /tts
+def _extra_tts_bases(env_name: str) -> List[str]:
+    raw = os.getenv(env_name, "").strip()
+    if not raw:
+        return []
+    return [u.rstrip("/") for u in raw.split(",") if u.strip()]
 
 # --- Whisper Model Initialization (Only in EARS mode to save VRAM) ---
 whisper_model = None
@@ -56,11 +67,14 @@ if MODE == "EARS":
         except:
             logger.error("Faster-Whisper Critical Failure.")
 
+_DEFAULT_TTS_ENGINE = os.getenv("DEFAULT_TTS_ENGINE", os.getenv("TTS_ENGINE", "TURBO"))
+
+
 class TTSRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     text: str
     voice: str = "female"
-    engine: str = "CHATTERBOX"
+    engine: str = _DEFAULT_TTS_ENGINE
 
 class STTRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
@@ -102,57 +116,72 @@ async def handle_tts(request: TTSRequest):
     logger.info(f"TTS Request: {request.text} (Engine: {request.engine})")
     engine_to_use = request.engine
     
+    def _turbo_tts_targets() -> List[str]:
+        bases = [TURBO_URL] + _extra_tts_bases("TURBO_EXTRA_URLS")
+        return [f"{b}/tts" for b in bases if b]
+
+    def _legacy_xtts_targets() -> List[str]:
+        if not CHATTERBOX_URL:
+            return []
+        bases = [CHATTERBOX_URL] + _extra_tts_bases("CHATTERBOX_EXTRA_URLS")
+        return [f"{b}/tts" for b in bases if b]
+
     try:
         async with httpx.AsyncClient() as client:
-            # TURBO PRIMARY
+            # TURBO PRIMARY (same API as turbochat_server: speaker_id)
             if engine_to_use == "TURBO":
-                # Try Direct IP first for reliability
-                targets = [f"{TURBO_IP}/tts", f"{TURBO_URL}/tts"]
-                for target in targets:
+                for target in _turbo_tts_targets():
                     try:
                         payload = {"text": request.text, "speaker_id": request.voice}
-                        logger.info(f"Mouth: Attempting TURBO at {target}")
-                        resp = await client.post(target, json=payload, timeout=10.0)
+                        logger.info(
+                            f"Mouth: Attempting TURBO at {target} (read timeout {_TURBO_READ_TIMEOUT}s)"
+                        )
+                        resp = await client.post(target, json=payload, timeout=_turbo_client_timeout())
                         if resp.status_code == 200:
                             return Response(content=resp.content, media_type="audio/wav")
-                        logger.warning(f"TURBO target {target} returned status {resp.status_code}")
+                        body_preview = (resp.text or "")[:200]
+                        logger.warning(
+                            f"TURBO target {target} returned status {resp.status_code}: {body_preview}"
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to reach TURBO {target}: {e}")
+                        logger.warning(f"Failed to reach TURBO {target}: {type(e).__name__}: {e}")
                 
-                # If Turbo fails, fallback to Chatterbox
                 logger.warning("All TURBO attempts failed. Falling back to CHATTERBOX...")
                 engine_to_use = "CHATTERBOX"
 
-            # STABLE CHATTERBOX (Port 8020)
+            # CHATTERBOX: try turbo surrogate (fast), then optional legacy XTTS on CHATTERBOX_URL, then Piper
             if engine_to_use == "CHATTERBOX":
-                # STRATEGY: Try TURBO first as a surrogate since it's much faster and likely online
                 logger.info("Mouth: CHATTERBOX requested. Attempting TURBO surrogate first...")
-                turbo_targets = [f"{TURBO_IP}/tts", f"{TURBO_URL}/tts"]
-                success = False
-                for target in turbo_targets:
+                for target in _turbo_tts_targets():
                     try:
                         payload = {"text": request.text, "speaker_id": request.voice}
-                        resp = await client.post(target, json=payload, timeout=5.0)
+                        resp = await client.post(target, json=payload, timeout=_turbo_client_timeout())
                         if resp.status_code == 200:
-                            logger.info(f"Mouth: TURBO successfully acted as CHATTERBOX surrogate via {target}.")
+                            logger.info(f"Mouth: TURBO surrogate OK via {target}.")
                             return Response(content=resp.content, media_type="audio/wav")
+                        logger.warning(
+                            f"Mouth: TURBO surrogate HTTP {resp.status_code} from {target}: {(resp.text or '')[:200]}"
+                        )
                     except Exception as te:
-                        logger.warning(f"Mouth: TURBO surrogate attempt at {target} failed: {te}")
+                        logger.warning(
+                            f"Mouth: TURBO surrogate attempt at {target} failed: {type(te).__name__}: {te}"
+                        )
                 
-                # Fallback to actual Chatterbox
-                targets = [f"{CHATTERBOX_IP}/tts", f"{CHATTERBOX_URL}/tts"]
-                for target in targets:
-                    try:
-                        payload = {"text": request.text, "speaker_wav": request.voice, "language": "en"}
-                        logger.info(f"Mouth: Forwarding to XTTS at {target}")
-                        resp = await client.post(target, json=payload, timeout=30.0)
-                        if resp.status_code == 200:
-                            return Response(content=resp.content, media_type="audio/wav")
-                        logger.warning(f"XTTS target {target} returned status {resp.status_code}")
-                    except Exception as e:
-                        logger.warning(f"Failed to reach XTTS {target}: {e}")
+                xtts_targets = _legacy_xtts_targets()
+                if xtts_targets:
+                    for target in xtts_targets:
+                        try:
+                            payload = {"text": request.text, "speaker_wav": request.voice, "language": "en"}
+                            logger.info(f"Mouth: Forwarding to legacy XTTS at {target}")
+                            resp = await client.post(target, json=payload, timeout=45.0)
+                            if resp.status_code == 200:
+                                return Response(content=resp.content, media_type="audio/wav")
+                            logger.warning(f"XTTS target {target} returned status {resp.status_code}")
+                        except Exception as e:
+                            logger.warning(f"Failed to reach XTTS {target}: {e}")
+                else:
+                    logger.info("Mouth: CHATTERBOX_URL unset — skipping legacy XTTS container (see docker-compose).")
                 
-                # If we reach here, XTTS failed. Fallback to Piper.
                 logger.warning("All XTTS attempts failed. Attempting PIPER fallback...")
                 engine_to_use = "PIPER"
 
@@ -160,7 +189,7 @@ async def handle_tts(request: TTSRequest):
             if engine_to_use == "PIPER":
                 try:
                     import subprocess
-                    model_path = "/app/models/Mouth/en_US-amy-medium.onnx"
+                    model_path = os.getenv("PIPER_MODEL_PATH", "/app/models/Mouth/en_US-amy-medium.onnx")
                     if not os.path.exists(model_path):
                         raise Exception(f"Piper model missing at {model_path}")
                     

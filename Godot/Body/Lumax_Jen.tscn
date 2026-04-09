@@ -1,33 +1,40 @@
-[gd_scene load_steps=7 format=3 uid="uid://b2x8jen9vs8u1"]
+[gd_scene format=3 uid="uid://b2x8jeoavs8u1"]
 
-[ext_resource type="PackedScene" path="res://Body/Models/Jen_Base.vrm" id="1_vrm"]
-[ext_resource type="Script" path="res://scripts/avatar_controller.gd" id="3_ctrl"]
-[ext_resource type="Script" path="res://scripts/tactile_nerve_network.gd" id="5_nerve"]
+[ext_resource type="PackedScene" uid="uid://ddv5thtb8r0dl" path="res://vrm/Jen_Base.vrm" id="1_vrm"]
+[ext_resource type="Script" uid="uid://bsfr4smk713os" path="res://scripts/avatar_controller.gd" id="3_ctrl"]
+[ext_resource type="Script" uid="uid://bm3mc6fc4fpax" path="res://scripts/tactile_nerve_network.gd" id="5_nerve"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
 radius = 0.4
 height = 1.5
 
-[node name="Avatar" type="CharacterBody3D"]
+[node name="Avatar" type="CharacterBody3D" unique_id=795957494]
 collision_layer = 2
-collision_mask = 1
 script = ExtResource("3_ctrl")
+avatar_node = NodePath("AvatarModel")
+snap_rest_pose_before_idle = true
 
-[node name="AvatarModel" parent="." instance=ExtResource("1_vrm")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
-visible = true
+[node name="AvatarModel" parent="." unique_id=1213205736 instance=ExtResource("1_vrm")]
+editor_description = "Godot-VRM puts AnimationPlayer here as a direct child of the VRM root. In the Scene dock, enable Editable Children on this node (or open the .vrm in FileSystem) to see it; collapsed instances hide children by default."
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="LumaxAnimPlayer" type="AnimationPlayer" parent="AvatarModel" unique_id=739245983]
+editor_description = "Fallback lungs if Jen_Base.vrm export omits importer AnimationPlayer (common on Quest). Distinct name avoids duplicate AnimationPlayer with VRM. AvatarController sets root_node if empty."
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1911323025]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
 shape = SubResource("CapsuleShape3D_1")
 
-[node name="AnimationTree" type="AnimationTree" parent="."]
-active = true
+[node name="AnimationTree" type="AnimationTree" parent="." unique_id=1298130121]
+editor_description = "anim_player set at runtime; default targets LumaxAnimPlayer under AvatarModel if VRM player missing on device."
+active = false
+root_node = NodePath("../AvatarModel")
+anim_player = NodePath("../AvatarModel/LumaxAnimPlayer")
 
-[node name="VoicePlayer" type="AudioStreamPlayer3D" parent="."]
+[node name="VoicePlayer" type="AudioStreamPlayer3D" parent="." unique_id=828869897]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
 unit_size = 3.0
 bus = &"Voices"
 
-[node name="TactileNerveNetwork" type="Node" parent="."]
+[node name="TactileNerveNetwork" type="Node" parent="." unique_id=1748256132]
 script = ExtResource("5_nerve")

@@ -11,7 +11,8 @@ class HomeCore:
     ## Governs lights, speakers, and environmental atmosphere.
 
     HA_URL = os.getenv("HA_URL", "http://localhost:8123/api")
-    HA_TOKEN = os.getenv("HA_TOKEN", "")
+    # Legacy alias: some .env files use HASS_TOKEN
+    HA_TOKEN = (os.getenv("HA_TOKEN") or os.getenv("HASS_TOKEN", "")).strip()
 
     @staticmethod
     async def call_service(domain: str, service: str, data: Dict):

@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bxmf0y1k4g8wx"
-path="res://.godot/imported/7051916860980982549.vrm-b371393603a762d164742e1efbc7666f.scn"
+path="res://.godot/imported/7051916860980982549.vrm-403597f06b0adccf887d40f66cd8c877.scn"
 
 [deps]
 
 source_file="res://vrm/7051916860980982549.vrm"
-dest_files=["res://.godot/imported/7051916860980982549.vrm-b371393603a762d164742e1efbc7666f.scn"]
+dest_files=["res://.godot/imported/7051916860980982549.vrm-403597f06b0adccf887d40f66cd8c877.scn"]
 
 [params]
 

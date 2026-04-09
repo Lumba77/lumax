@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+from typing import Optional
 import numpy as np
 import torch
 
@@ -10,6 +11,19 @@ try:
     GGUF_AVAILABLE = True
 except ImportError:
     GGUF_AVAILABLE = False
+    Llama = None  # type: ignore
+
+try:
+    from llama_cpp.llama_chat_format import Llava15ChatHandler
+except ImportError:
+    Llava15ChatHandler = None
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.getenv(name, "").strip().lower()
+    if not val:
+        return default
+    return val in ("1", "true", "yes", "on")
 
 HF_AVAILABLE = False
 try:
@@ -33,6 +47,15 @@ class LumaxEngine:
         self.model = None
         self.tokenizer = None
         self.processor = None
+        # Set in load() when LUMAX_GGUF_NATIVE_VISION=1 and mmproj + Llava15ChatHandler init succeeds.
+        self.gguf_multimodal_ready = False
+        self.mmproj_path: Optional[str] = None
+        # GGUF context window (supports long-context models if VRAM permits).
+        try:
+            ctx_raw = int(os.getenv("LUMAX_LOCAL_N_CTX", "32768") or "32768")
+        except Exception:
+            ctx_raw = 32768
+        self.gguf_n_ctx = max(4096, min(ctx_raw, 65536))
         
         # Standard Settings
         self.gen_config = {
@@ -40,7 +63,7 @@ class LumaxEngine:
             "top_p": 0.8,
             "top_k": 20,
             "min_p": 0.0,
-            "repetition_penalty": 1.1,
+            "repetition_penalty": 1.18,
             "do_sample": True
         }
         
@@ -61,33 +84,93 @@ class LumaxEngine:
             return "TRANSFORMERS"
         return "UNKNOWN"
 
+    def _resolve_mmproj_path(self, model_file: str) -> Optional[str]:
+        """mmproj path: LUMAX_MMPROJ_PATH, or *mmproj*.gguf next to weights / in model dir."""
+        env_p = os.getenv("LUMAX_MMPROJ_PATH", "").strip()
+        if env_p and os.path.isfile(env_p):
+            return env_p
+        search_dirs = []
+        if os.path.isdir(self.model_path):
+            search_dirs.append(self.model_path)
+        else:
+            parent = os.path.dirname(os.path.abspath(model_file))
+            if os.path.isdir(parent):
+                search_dirs.append(parent)
+        for d in search_dirs:
+            try:
+                names = sorted(os.listdir(d))
+            except OSError:
+                continue
+            for f in names:
+                if f.endswith(".gguf") and "mmproj" in f.lower():
+                    return os.path.join(d, f)
+        return None
+
     def load(self):
         try:
             if self.engine_type == "GGUF" and GGUF_AVAILABLE:
+                self.gguf_multimodal_ready = False
+                self.mmproj_path = None
                 model_file = self.model_path
-                mmproj_file = None
-                
                 if os.path.isdir(self.model_path):
-                    for f in os.listdir(self.model_path):
-                        if f.endswith(".gguf") and "mmproj" not in f.lower():
-                            model_file = os.path.join(self.model_path, f)
-                        if f.endswith(".gguf") and "mmproj" in f.lower():
-                            mmproj_file = os.path.join(self.model_path, f)
-                
+                    non_mm = sorted(
+                        f
+                        for f in os.listdir(self.model_path)
+                        if f.endswith(".gguf") and "mmproj" not in f.lower()
+                    )
+                    if non_mm:
+                        model_file = os.path.join(self.model_path, non_mm[0])
+
+                mmproj_file = self._resolve_mmproj_path(model_file)
+                self.mmproj_path = mmproj_file
+                native_vision = _env_bool("LUMAX_GGUF_NATIVE_VISION", False)
+                use_multimodal = bool(
+                    mmproj_file
+                    and native_vision
+                    and Llava15ChatHandler is not None
+                )
+
                 logging.info(f"LumaxEngine: Manifesting GGUF Soul from {model_file}...")
-                if mmproj_file:
-                    logging.info(f"LumaxEngine: Sighted Soul - loading vision projector {mmproj_file}")
-                    # Using Llama with multimodal support
+                logging.info("LumaxEngine: GGUF n_ctx=%d", self.gguf_n_ctx)
+                if use_multimodal:
+                    logging.info(
+                        "LumaxEngine: Native VL (experimental) — mmproj=%s, handler=Llava15ChatHandler",
+                        mmproj_file,
+                    )
+                    try:
+                        chat_handler = Llava15ChatHandler(clip_model_path=mmproj_file)  # type: ignore[misc]
+                        self.model = Llama(
+                            model_path=model_file,
+                            chat_handler=chat_handler,
+                            n_ctx=self.gguf_n_ctx,
+                            n_gpu_layers=99,
+                            flash_attn=False,
+                        )
+                        self.gguf_multimodal_ready = True
+                    except Exception as mm_ex:
+                        logging.warning(
+                            "LumaxEngine: Native VL init failed (%s); loading text-only GGUF.",
+                            mm_ex,
+                        )
+                        self.model = Llama(
+                            model_path=model_file,
+                            n_ctx=self.gguf_n_ctx,
+                            n_gpu_layers=99,
+                            flash_attn=False,
+                        )
+                else:
+                    if mmproj_file and not native_vision:
+                        logging.info(
+                            "LumaxEngine: mmproj found at %s but LUMAX_GGUF_NATIVE_VISION is off — text-only load.",
+                            mmproj_file,
+                        )
                     self.model = Llama(
                         model_path=model_file,
-                        chat_handler=None, 
-                        n_ctx=8192,
-                        n_gpu_layers=99, # Explicit high number for full offload
-                        flash_attn=False # Disable if causing fallback
+                        n_ctx=self.gguf_n_ctx,
+                        n_gpu_layers=99,
+                        flash_attn=False,
                     )
-                else:
-                    self.model = Llama(model_path=model_file, n_ctx=8192, n_gpu_layers=99, flash_attn=False)
-                
+
                 logging.info("LumaxEngine: GGUF Soul Manifested.")
                 return True
             
@@ -185,7 +268,7 @@ class LumaxEngine:
             logging.error(f"LumaxEngine: Manifestation Failed -> {e}", exc_info=True)
         return False
 
-    def generate(self, prompt: str, image_base64: str = None, max_tokens: int = 512) -> str:
+    def generate(self, prompt: str, image_base64: str = None, max_tokens: int = 768) -> str:
         if not self.model: return "Soul not manifested."
         
         try:
@@ -196,11 +279,63 @@ class LumaxEngine:
                     "top_k": self.gen_config.get("top_k", 20),
                     "repeat_penalty": self.gen_config.get("repetition_penalty", 1.1)
                 }
-                # Assume the prompt is already formatted by the caller (compagent.py)
-                output = self.model(prompt, max_tokens=max_tokens, stop=["USER:", "Daniel:", "<|im_end|>", "\n\n"], **gguf_config)
+                # Stops: do NOT use "\n\n" — it cuts off normal paragraphs after a few words.
+                _stops = [
+                    "USER:", "\nUSER:", "Daniel:", "\nDaniel:",
+                    "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|im_end|>",
+                ]
+                if image_base64 and getattr(self, "gguf_multimodal_ready", False):
+                    try:
+                        raw_img = (image_base64 or "").strip()
+                        if raw_img.startswith("data:"):
+                            img_url = raw_img
+                        else:
+                            img_url = f"data:image/jpeg;base64,{raw_img}"
+                        messages = [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "image_url", "image_url": {"url": img_url}},
+                                    {"type": "text", "text": prompt},
+                                ],
+                            }
+                        ]
+                        out = self.model.create_chat_completion(
+                            messages=messages,
+                            max_tokens=max_tokens,
+                            stop=_stops,
+                            temperature=gguf_config["temperature"],
+                            top_p=gguf_config["top_p"],
+                            top_k=gguf_config["top_k"],
+                            repeat_penalty=gguf_config["repeat_penalty"],
+                        )
+                        ch0 = out["choices"][0]
+                        msg = ch0.get("message") or {}
+                        raw_c = msg.get("content")
+                        if isinstance(raw_c, list):
+                            piece = "".join(
+                                x.get("text", "") if isinstance(x, dict) else str(x) for x in raw_c
+                            ).strip()
+                        elif isinstance(raw_c, str):
+                            piece = raw_c.strip()
+                        else:
+                            piece = ""
+                        if piece:
+                            return piece
+                    except Exception as mm_ex:
+                        logging.warning(
+                            "LumaxEngine: GGUF multimodal chat completion failed, falling back to text-only: %s",
+                            mm_ex,
+                        )
+                output = self.model(prompt, max_tokens=max_tokens, stop=_stops, **gguf_config)
                 return output["choices"][0]["text"].strip()
 
-            elif self.engine_type == "DFLASH" or self.engine_type == "TRANSFORMERS":
+            elif (
+                self.engine_type == "DFLASH"
+                or self.engine_type == "TRANSFORMERS"
+                or self.engine_type == "QUANTIZED_HF"
+            ):
+                # AWQ / GPTQ / plain HF text: vision is text-injected (compagent helper stack), not raw pixels here.
                 inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
                 outputs = self.model.generate(**inputs, max_new_tokens=max_tokens, **self.gen_config)
                 return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -222,8 +357,8 @@ class LumaxEngine:
         except Exception as e:
             return f"Cognition Error: {e}"
 
-    def generate_stream(self, prompt: str, max_tokens: int = 512):
-        """Streams tokens word-by-word for GGUF models."""
+    def generate_stream(self, prompt: str, max_tokens: int = 768):
+        """Streams tokens word-by-word for GGUF models. Multimodal (native mmproj) is not wired here — use generate() with image_base64."""
         if not self.model or self.engine_type != "GGUF":
             yield "Soul not manifested or engine doesn't support streaming."
             return

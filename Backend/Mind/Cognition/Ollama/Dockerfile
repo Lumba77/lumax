@@ -7,8 +7,7 @@ EXPOSE 11434
 RUN apt-get update && apt-get install -y curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Models will be pulled on container startup if not present in the volume.
-# This Dockerfile only prepares the base Ollama image.
+# Pull models after the container is up: see scripts/pull_ollama_backup_models.ps1
 
-# Command to start the Ollama server
-CMD ["ollama", "serve"]
+# Base image entrypoint is already `ollama`; pass only subcommand.
+CMD ["serve"]

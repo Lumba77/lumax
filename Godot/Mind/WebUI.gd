@@ -12,10 +12,17 @@ signal dream_requested()
 signal system_check_requested()
 signal soul_verification_requested()
 signal user_certification_requested()
+## Indices match `SkeletonKey.QuestDisplayMode`: 0 Auto, 1 Pure passthrough, 2 XR mixed, 3 VR.
+signal quest_display_mode_selected(mode_index: int)
+## Match `MultiVisionHandler.UserVisionSource` / `JenVisionSource` enum ordinals.
+signal user_vision_source_selected(mode_index: int)
+signal jen_vision_source_selected(mode_index: int)
 
 var current_tab = "NEURAL"
 @onready var chat_log: RichTextLabel = null
-@onready var input_display: Label = null
+## Live mirror of TactileInput buffer (typed on XR keyboard); bottom strip of CHAT column.
+var input_display: Label = null
+var _chat_column: VBoxContainer = null
 var _main_vbox: VBoxContainer = null
 var _content_stack: Control = null
 var _floating_panel: PanelContainer = null
@@ -24,16 +31,43 @@ var _active_hub_btn: Button = null
 var _audio: AudioStreamPlayer = null
 var _log_display: RichTextLabel = null
 var _vitals_data: Dictionary = {}
+var _hub_buttons: Dictionary = {}
+var _stress_banner: Label = null
+var _stress_latched: bool = false
+var _last_soul_cpu_pct: float = -1.0
+var _last_host_cpu_pct: float = -1.0
+const STRESS_HOT_PCT := 550.0
+const STRESS_CLEAR_PCT := 300.0
+var _quest_display_ob: OptionButton = null
+var _user_vision_ob: OptionButton = null
+var _jen_vision_ob: OptionButton = null
+
+## SYSTEM tab: soul runtime (GGUF path, mmproj, flags) — wired to Synapse group `lumax_synapse`.
+var _system_preset_ob: OptionButton = null
+var _system_model_path_edit: LineEdit = null
+var _system_mmproj_path_edit: LineEdit = null
+var _system_native_vision_cb: CheckButton = null
+var _system_local_caption_cb: CheckButton = null
+var _system_chat_provider_ob: OptionButton = null
+var _system_status_label: Label = null
+var _system_synapse_signals_done: bool = false
+const _PATH_GEMMA_HERETIC_DEFAULT := "D:/VR_AI_Forge_Data/models/Mind/Cognition/gemma-4-E2B-it-heretic-ara.Q4_K_M.gguf"
+const _SYSTEM_PREFS_PATH := "user://lumax_soul_runtime_prefs.json"
 
 var _log_lines: Array = ["[color=green]OS_LOAD_OK[/color]", "[color=cyan]VRAM: 8GB ACTIVE[/color]", "[color=white]NEURAL_FLUX: STABLE[/color]"]
 const KEY_GAP := 10.0
 
-var _hubs = {
+## Hub id → submenu tab ids (internal). Display strings: `ribbon_labels` / `tab_labels` from lumax_ui_config (Godot/VR).
+var _hubs: Dictionary = {
 	"MIND": ["PSYCHE", "SOUL", "BRAINS", "MEMORY", "EMOTIONS"],
-	"BODY": ["VESSEL", "AGENCY", "VITALS", "SENTRY"],
+	"BODY": ["VESSEL", "AGENCY", "VITALS"],
 	"MANIFEST": ["IMAGEN", "VIDGEN", "MEDIA"],
-	"CORE": ["CHAT", "LOGS", "SETTINGS", "FILES"]
+	"CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "FILES"],
 }
+const _UI_CONFIG_CACHE := "user://lumax_ui_config_cache.json"
+var _ribbon_labels: Dictionary = {}
+var _tab_labels: Dictionary = {}
+var _ui_http: HTTPRequest
 
 var _traits = [
 	"extrovert", "intellectual", "logic", "detail", "faithful", "sexual", 
@@ -42,8 +76,12 @@ var _traits = [
 ]
 
 func _ready():
+	_load_ui_config_cache_sync()
 	_audio = AudioStreamPlayer.new()
 	add_child(_audio)
+	_ui_http = HTTPRequest.new()
+	add_child(_ui_http)
+	_ui_http.request_completed.connect(_on_ui_config_http_done)
 	
 	if LogMaster:
 		LogMaster.log_added.connect(_on_log_added)
@@ -95,26 +133,51 @@ func _ready():
 	
 	for hub in ["MIND", "BODY", "MANIFEST", "CORE"]:
 		var btn = Button.new()
-		btn.text = hub
+		btn.text = _ribbon_hub_text(hub)
 		btn.custom_minimum_size.y = 50
 		btn.size_flags_horizontal = SIZE_EXPAND_FILL
 		ribbon_h_box.add_child(btn)
 		btn.add_theme_stylebox_override("normal", style_btn)
 		btn.pressed.connect(_on_ribbon_pressed.bind(hub, btn))
+		_hub_buttons[hub] = btn
+
+	_stress_banner = Label.new()
+	_stress_banner.visible = false
+	_stress_banner.text = "GUARDIAN: HARDWARE STRESS"
+	_stress_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_stress_banner.add_theme_font_size_override("font_size", 15)
+	_stress_banner.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25))
+	_main_vbox.add_child(_stress_banner)
 
 	# --- DYNAMIC CONTENT STACK ---
 	_content_stack = Control.new()
 	_content_stack.size_flags_vertical = SIZE_EXPAND_FILL
 	_main_vbox.add_child(_content_stack)
 
-	# --- TALL CHAT LOG (Default content) ---
+	# --- CHAT COLUMN: draft line (keyboard buffer) + log ---
+	_chat_column = VBoxContainer.new()
+	_chat_column.name = "ChatColumn"
+	_chat_column.set_anchors_preset(PRESET_FULL_RECT)
+	_content_stack.add_child(_chat_column)
+
+	input_display = Label.new()
+	input_display.name = "KeyboardDraft"
+	input_display.text = "> _"
+	input_display.custom_minimum_size.y = 28
+	input_display.add_theme_font_size_override("font_size", 15)
+	input_display.add_theme_color_override("font_color", Color(0.5, 0.95, 1.0, 0.92))
+	input_display.clip_text = true
+
 	chat_log = RichTextLabel.new()
-	chat_log.set_anchors_preset(PRESET_FULL_RECT)
+	chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	chat_log.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	chat_log.bbcode_enabled = true
 	chat_log.scroll_following = true
 	chat_log.add_theme_font_size_override("normal_font_size", 18)
-	_content_stack.add_child(chat_log)
+	_chat_column.add_child(chat_log)
 	chat_log.text = "[center][color=#00f3ff]... LUMAX NEXUS ONLINE ...[/color][/center]"
+	# Draft line under the log (mirrors TactileInput buffer)
+	_chat_column.add_child(input_display)
 
 	# --- SHARED EXPERIENCE CONFERENCE (NEW) ---
 	var conf_vbox = VBoxContainer.new()
@@ -142,12 +205,12 @@ func _ready():
 	var jen_v = TextureRect.new(); jen_v.name = "JenPOV"; jen_v.expand_mode = TextureRect.EXPAND_IGNORE_SIZE; jen_v.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	jen_v.custom_minimum_size = Vector2(390, 220); jen_v.size_flags_horizontal = SIZE_EXPAND_FILL
 	
-	h_grid.add_child(user_v); h_grid.add_child(jen_v)
+	# h_grid.add_child(user_v); h_grid.add_child(jen_v)
 	
 	var conf_btns = HBoxContainer.new(); conf_btns.alignment = BoxContainer.ALIGNMENT_CENTER
 	conf_vbox.add_child(conf_btns)
-	var save_b = Button.new(); save_b.text = "[ SAVE EXPERIENCE ]"; save_b.custom_minimum_size = Vector2(250, 40)
-	conf_btns.add_child(save_b)
+	# var save_b = Button.new(); save_b.text = "[ SAVE EXPERIENCE ]"; save_b.custom_minimum_size = Vector2(250, 40)
+	# conf_btns.add_child(save_b)
 	
 	# chat_log.offset_top = 280
 	chat_log.add_theme_color_override("default_color", Color(1, 1, 1, 0.9)) # WHITE TEXT FOR READABILITY
@@ -167,12 +230,124 @@ func _ready():
 	_floating_panel.add_theme_stylebox_override("panel", style_float)
 	_submenu_container = VBoxContainer.new()
 	_floating_panel.add_child(_submenu_container)
-	
+	call_deferred("_request_ui_config")
+
+func _lumax_ui_base_url() -> String:
+	var e: String = OS.get_environment("LUMAX_UI_CONFIG_URL")
+	e = e.strip_edges()
+	if e != "" and (e.begins_with("http://") or e.begins_with("https://")):
+		return e.trim_suffix("/")
+	return "http://127.0.0.1:8080"
+
+
+func _ribbon_hub_text(hub: String) -> String:
+	if _ribbon_labels.has(hub):
+		return str(_ribbon_labels[hub])
+	return hub
+
+
+func _tab_display_name(tab_id: String) -> String:
+	if _tab_labels.has(tab_id):
+		return str(_tab_labels[tab_id])
+	return tab_id
+
+
+func _sanitize_hubs(raw: Variant) -> Dictionary:
+	var fallback: Dictionary = {
+		"MIND": ["PSYCHE", "SOUL", "BRAINS", "MEMORY", "EMOTIONS"],
+		"BODY": ["VESSEL", "AGENCY", "VITALS"],
+		"MANIFEST": ["IMAGEN", "VIDGEN", "MEDIA"],
+		"CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "FILES"],
+	}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return fallback
+	var out: Dictionary = {}
+	for k in raw.keys():
+		var v = raw[k]
+		if typeof(v) != TYPE_ARRAY:
+			continue
+		var arr: Array = []
+		for x in v:
+			arr.append(str(x))
+		out[str(k)] = arr
+	if out.size() == 0:
+		return fallback
+	for k in fallback.keys():
+		if not out.has(k):
+			out[k] = fallback[k]
+	return out
+
+
+func _apply_ui_config_dict(d: Dictionary) -> void:
+	if not d.has("godot_vr"):
+		return
+	var gv = d["godot_vr"]
+	if typeof(gv) != TYPE_DICTIONARY:
+		return
+	if gv.has("hubs"):
+		_hubs = _sanitize_hubs(gv["hubs"])
+	if gv.has("ribbon_labels") and typeof(gv["ribbon_labels"]) == TYPE_DICTIONARY:
+		_ribbon_labels = {}
+		for k in gv["ribbon_labels"].keys():
+			_ribbon_labels[str(k)] = str(gv["ribbon_labels"][k])
+	if gv.has("tab_labels") and typeof(gv["tab_labels"]) == TYPE_DICTIONARY:
+		_tab_labels = {}
+		for k in gv["tab_labels"].keys():
+			_tab_labels[str(k)] = str(gv["tab_labels"][k])
+	_refresh_ribbon_button_labels()
+
+
+func _refresh_ribbon_button_labels() -> void:
+	for hub in _hub_buttons.keys():
+		var btn = _hub_buttons.get(hub)
+		if btn:
+			btn.text = _ribbon_hub_text(hub)
+
+
+func _load_ui_config_cache_sync() -> void:
+	if not FileAccess.file_exists(_UI_CONFIG_CACHE):
+		return
+	var txt := FileAccess.get_file_as_string(_UI_CONFIG_CACHE)
+	if txt.is_empty():
+		return
+	var d = JSON.parse_string(txt)
+	if typeof(d) != TYPE_DICTIONARY:
+		return
+	_apply_ui_config_dict(d)
+
+
+func _request_ui_config() -> void:
+	if _ui_http == null:
+		return
+	var url := _lumax_ui_base_url() + "/api/ui_config"
+	var err: Error = _ui_http.request(url)
+	if err != OK:
+		push_warning("Lumax UI config: HTTP request failed err=%s url=%s" % [err, url])
+
+
+func _on_ui_config_http_done(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		return
+	if response_code != 200:
+		return
+	var txt := body.get_string_from_utf8()
+	var d = JSON.parse_string(txt)
+	if typeof(d) != TYPE_DICTIONARY:
+		return
+	var f := FileAccess.open(_UI_CONFIG_CACHE, FileAccess.WRITE)
+	if f:
+		f.store_string(txt)
+		f.close()
+	_apply_ui_config_dict(d)
+
+
 func _play_sfx(sfx_name: String):
 	if not _audio: return
 	var path = "res://Mind/Sfx/" + sfx_name + ".wav"
 	if FileAccess.file_exists(path):
 		_audio.stream = load(path)
+		# pop.wav: quiet UI tick (~10% linear); other SFX stay at default.
+		_audio.volume_db = linear_to_db(0.1) if sfx_name == "pop" else 0.0
 		_audio.play()
 
 func _on_ribbon_pressed(hub_name: String, btn: Button):
@@ -188,7 +363,7 @@ func _on_ribbon_pressed(hub_name: String, btn: Button):
 	_play_sfx("shuff")
 	for sub in _hubs.get(hub_name, []):
 		var s_btn = Button.new()
-		s_btn.text = " " + sub
+		s_btn.text = " " + _tab_display_name(str(sub))
 		s_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		s_btn.custom_minimum_size.y = 40
 		_submenu_container.add_child(s_btn)
@@ -205,11 +380,14 @@ func _on_tab_pressed(tab_name: String):
 	
 	match tab_name:
 		"CHAT":
-			chat_log.visible = true
+			if _chat_column:
+				_chat_column.visible = true
 		"SOUL":
 			_show_soul_panel()
 		"SETTINGS":
 			_show_settings_panel()
+		"SYSTEM":
+			_show_system_runtime_panel()
 		"WIDGETS":
 			_show_widgets_settings()
 		"LOGS":
@@ -217,7 +395,7 @@ func _on_tab_pressed(tab_name: String):
 		"SENTRY":
 			_show_sentry_matrix()
 		"VITALS":
-			_show_vitals_monitors()
+			_show_sentry_matrix()
 		"MEMORY":
 			_show_memory_panel()
 		"BRAINS":
@@ -236,11 +414,12 @@ func _on_tab_pressed(tab_name: String):
 			_show_emotions_panel()
 		_:
 			add_message("SYSTEM", "PROTO [" + tab_name + "] INITIALIZED")
-			chat_log.visible = true
+			if _chat_column:
+				_chat_column.visible = true
 
 func _clear_content_stack():
 	for child in _content_stack.get_children():
-		if child == chat_log: 
+		if child == _chat_column:
 			child.visible = false
 		else:
 			child.queue_free() # Clean memory, recreate on demand
@@ -318,6 +497,40 @@ func _show_settings_panel():
 		_populate_settings_list(settings_list)
 
 	panel.visible = true
+	_sync_quest_display_option_from_core()
+	_sync_vision_feed_options_from_handler()
+
+func _sync_quest_display_option_from_core() -> void:
+	if _quest_display_ob == null:
+		return
+	var core: Node = get_tree().get_first_node_in_group("lumax_core")
+	if core == null:
+		return
+	var qdm: Variant = core.get("quest_display_mode")
+	if qdm == null:
+		return
+	_quest_display_ob.set_block_signals(true)
+	_quest_display_ob.select(clampi(int(qdm), 0, _quest_display_ob.item_count - 1))
+	_quest_display_ob.set_block_signals(false)
+
+
+func _sync_vision_feed_options_from_handler() -> void:
+	var vh: Node = get_tree().root.find_child("MultiVisionHandler", true, false)
+	if vh == null:
+		return
+	if _user_vision_ob:
+		var uvs: Variant = vh.get("user_vision_source")
+		if uvs != null:
+			_user_vision_ob.set_block_signals(true)
+			_user_vision_ob.select(clampi(int(uvs), 0, _user_vision_ob.item_count - 1))
+			_user_vision_ob.set_block_signals(false)
+	if _jen_vision_ob:
+		var jvs: Variant = vh.get("jen_vision_source")
+		if jvs != null:
+			_jen_vision_ob.set_block_signals(true)
+			_jen_vision_ob.select(clampi(int(jvs), 0, _jen_vision_ob.item_count - 1))
+			_jen_vision_ob.set_block_signals(false)
+
 
 func _populate_settings_list(settings_list: VBoxContainer):
 	
@@ -346,6 +559,38 @@ func _populate_settings_list(settings_list: VBoxContainer):
 			for item in c.v: ob.add_item(item)
 			ob.item_selected.connect(func(idx): _on_manual_setting_changed(c.n, c.v[idx]))
 
+	var h_q := HBoxContainer.new(); settings_list.add_child(h_q)
+	var l_q := Label.new(); l_q.text = "QUEST_DISPLAY_MODE"; l_q.custom_minimum_size.x = 200; h_q.add_child(l_q)
+	var ob_q := OptionButton.new()
+	ob_q.size_flags_horizontal = SIZE_EXPAND_FILL
+	h_q.add_child(ob_q)
+	ob_q.add_item("Auto (infer from OpenXR blend)")
+	ob_q.add_item("Pure passthrough / AR")
+	ob_q.add_item("XR mixed (additive + passthrough)")
+	ob_q.add_item("VR immersive (opaque, PT off)")
+	_quest_display_ob = ob_q
+	ob_q.item_selected.connect(_on_quest_display_option_selected)
+
+	var h_uv := HBoxContainer.new(); settings_list.add_child(h_uv)
+	var l_uv := Label.new(); l_uv.text = "USER_VISION_FEED"; l_uv.custom_minimum_size.x = 200; h_uv.add_child(l_uv)
+	var ob_uv := OptionButton.new(); ob_uv.size_flags_horizontal = SIZE_EXPAND_FILL; h_uv.add_child(ob_uv)
+	ob_uv.add_item("Auto (webcam if allowed, else headset)")
+	ob_uv.add_item("PC screen / desktop")
+	ob_uv.add_item("Webcam — user (primary feed)")
+	ob_uv.add_item("Webcam — personal / 2nd cam")
+	ob_uv.add_item("Headset / passthrough / XR / VR")
+	_user_vision_ob = ob_uv
+	ob_uv.item_selected.connect(_on_user_vision_option_selected)
+
+	var h_jv := HBoxContainer.new(); settings_list.add_child(h_jv)
+	var l_jv := Label.new(); l_jv.text = "JEN_VISION_FEED"; l_jv.custom_minimum_size.x = 200; h_jv.add_child(l_jv)
+	var ob_jv := OptionButton.new(); ob_jv.size_flags_horizontal = SIZE_EXPAND_FILL; h_jv.add_child(ob_jv)
+	ob_jv.add_item("Auto (webcam if allowed, else avatar head)")
+	ob_jv.add_item("Personal / Jen-slot webcam")
+	ob_jv.add_item("Avatar head in-world camera")
+	_jen_vision_ob = ob_jv
+	ob_jv.item_selected.connect(_on_jen_vision_option_selected)
+
 	var l_tools = Label.new(); l_tools.text = "ENGINE_TOOLS // UTILITIES"; l_tools.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; settings_list.add_child(l_tools)
 	var quick_grid = GridContainer.new(); quick_grid.columns = 2; settings_list.add_child(quick_grid)
 	
@@ -360,6 +605,256 @@ func _populate_settings_list(settings_list: VBoxContainer):
 		var b = Button.new(); b.text = t.n; b.custom_minimum_size = Vector2(200, 45); quick_grid.add_child(b)
 		b.pressed.connect(func(): add_message("SYSTEM", "EXEC: " + t.n))
 		
+
+func _on_quest_display_option_selected(idx: int) -> void:
+	_play_sfx("pop")
+	quest_display_mode_selected.emit(idx)
+	add_message("SYSTEM", "QUEST_DISPLAY_MODE -> index " + str(idx))
+
+
+func _on_user_vision_option_selected(idx: int) -> void:
+	_play_sfx("pop")
+	user_vision_source_selected.emit(idx)
+	add_message("SYSTEM", "USER_VISION_FEED -> " + str(idx))
+
+
+func _on_jen_vision_option_selected(idx: int) -> void:
+	_play_sfx("pop")
+	jen_vision_source_selected.emit(idx)
+	add_message("SYSTEM", "JEN_VISION_FEED -> " + str(idx))
+
+
+func _load_system_runtime_prefs() -> Dictionary:
+	if not FileAccess.file_exists(_SYSTEM_PREFS_PATH):
+		return {}
+	var raw := FileAccess.get_file_as_string(_SYSTEM_PREFS_PATH)
+	var j = JSON.parse_string(raw)
+	return j if j is Dictionary else {}
+
+
+func _save_system_runtime_prefs() -> void:
+	var d: Dictionary = {
+		"model_path": _system_model_path_edit.text if _system_model_path_edit else "",
+		"mmproj_path": _system_mmproj_path_edit.text if _system_mmproj_path_edit else "",
+		"native_vision": _system_native_vision_cb.button_pressed if _system_native_vision_cb else false,
+		"local_caption": _system_local_caption_cb.button_pressed if _system_local_caption_cb else true,
+		"chat_provider": _system_chat_provider_ob.get_item_text(_system_chat_provider_ob.selected) if _system_chat_provider_ob else "local",
+	}
+	var f := FileAccess.open(_SYSTEM_PREFS_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(d))
+
+
+func _wire_system_synapse_once() -> void:
+	if _system_synapse_signals_done:
+		return
+	var syn: Node = get_tree().get_first_node_in_group("lumax_synapse")
+	if syn == null:
+		return
+	if syn.has_signal("soul_runtime_config_received") and not syn.soul_runtime_config_received.is_connected(_on_soul_runtime_config_received):
+		syn.soul_runtime_config_received.connect(_on_soul_runtime_config_received)
+	if syn.has_signal("soul_runtime_status_received") and not syn.soul_runtime_status_received.is_connected(_on_soul_runtime_status_received):
+		syn.soul_runtime_status_received.connect(_on_soul_runtime_status_received)
+	_system_synapse_signals_done = true
+
+
+func _on_soul_runtime_config_received(data: Dictionary) -> void:
+	var ok: bool = bool(data.get("ok", true)) and str(data.get("mode", "")) != "ERROR"
+	var msg: String = str(data.get("response", data.get("body", JSON.stringify(data))))
+	if _system_status_label:
+		_system_status_label.text = ("OK: " if ok else "ERR: ") + msg.substr(0, 220)
+	add_message("SYSTEM", "SOUL_RUNTIME " + ("OK " if ok else "FAIL ") + msg.substr(0, 120))
+	if ok:
+		_save_system_runtime_prefs()
+
+
+func _on_soul_runtime_status_received(data: Dictionary) -> void:
+	if data.has("error"):
+		if _system_status_label:
+			_system_status_label.text = "Status: " + str(data)
+		return
+	if _system_model_path_edit and data.get("model_path"):
+		_system_model_path_edit.text = str(data["model_path"])
+	if _system_mmproj_path_edit:
+		_system_mmproj_path_edit.text = str(data.get("LUMAX_MMPROJ_PATH", ""))
+	if _system_native_vision_cb:
+		_system_native_vision_cb.set_block_signals(true)
+		_system_native_vision_cb.button_pressed = bool(data.get("LUMAX_GGUF_NATIVE_VISION", false))
+		_system_native_vision_cb.set_block_signals(false)
+	if _system_local_caption_cb:
+		_system_local_caption_cb.set_block_signals(true)
+		_system_local_caption_cb.button_pressed = bool(data.get("LUMAX_LOCAL_VISION_ENABLED", true))
+		_system_local_caption_cb.set_block_signals(false)
+	if _system_chat_provider_ob:
+		var cp := str(data.get("LUMAX_CHAT_PROVIDER", "local"))
+		for i in range(_system_chat_provider_ob.item_count):
+			if _system_chat_provider_ob.get_item_text(i) == cp:
+				_system_chat_provider_ob.select(i)
+				break
+	if _system_status_label:
+		_system_status_label.text = "Synced: " + str(data.get("engine_type", "?")) + " mmproj=" + str(data.get("gguf_multimodal_ready", false))
+
+
+func _apply_system_runtime_pressed() -> void:
+	_wire_system_synapse_once()
+	var syn: Node = get_tree().get_first_node_in_group("lumax_synapse")
+	if syn == null or not syn.has_method("apply_soul_runtime_config"):
+		add_message("SYSTEM", "SOUL_RUNTIME: no Synapse (lumax_synapse group)")
+		return
+	var payload: Dictionary = {}
+	if _system_preset_ob == null:
+		return
+	var idx: int = _system_preset_ob.selected
+	match idx:
+		0:
+			var p := _system_model_path_edit.text.strip_edges() if _system_model_path_edit else ""
+			if p.is_empty():
+				add_message("SYSTEM", "SOUL_RUNTIME: set Custom GGUF path or pick a preset")
+				return
+			payload["model_path"] = p
+		1:
+			payload["model_path"] = _PATH_GEMMA_HERETIC_DEFAULT
+		2:
+			payload["model"] = "nexus_v1"
+		3:
+			payload["model"] = "soul_4b_q6"
+		4:
+			payload["model"] = "ratatosk_tiny"
+		5:
+			payload["model"] = "ollama_fallback"
+		_:
+			add_message("SYSTEM", "SOUL_RUNTIME: invalid preset")
+			return
+	var mm := _system_mmproj_path_edit.text.strip_edges() if _system_mmproj_path_edit else ""
+	if not mm.is_empty():
+		payload["mmproj_path"] = mm
+	if _system_native_vision_cb:
+		payload["native_vision"] = _system_native_vision_cb.button_pressed
+	if _system_local_caption_cb:
+		payload["local_vision_caption"] = _system_local_caption_cb.button_pressed
+	if _system_chat_provider_ob:
+		payload["chat_provider"] = _system_chat_provider_ob.get_item_text(_system_chat_provider_ob.selected)
+	_play_sfx("pop")
+	syn.apply_soul_runtime_config(payload)
+
+
+func _on_system_preset_selected(idx: int) -> void:
+	if idx == 1 and _system_model_path_edit:
+		_system_model_path_edit.text = _PATH_GEMMA_HERETIC_DEFAULT
+	_play_sfx("pop")
+
+
+func _show_system_runtime_panel() -> void:
+	var panel: Control = _content_stack.get_node_or_null("SystemRuntimePanel")
+	if not panel:
+		panel = ScrollContainer.new()
+		panel.name = "SystemRuntimePanel"
+		panel.set_anchors_preset(PRESET_FULL_RECT)
+		_content_stack.add_child(panel)
+		var vbox := VBoxContainer.new()
+		vbox.size_flags_horizontal = SIZE_EXPAND_FILL
+		panel.add_child(vbox)
+		var title := Label.new()
+		title.text = "SOUL_RUNTIME // COGNITIVE_CONFIG"
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(title)
+		var hint := Label.new()
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint.text = "Hot-reload local GGUF + vision flags (Docker soul :8000). Paths are sent to the PC host; map them to your container or run native."
+		vbox.add_child(hint)
+		var prefs := _load_system_runtime_prefs()
+		var h_pre := HBoxContainer.new()
+		vbox.add_child(h_pre)
+		var l_pre := Label.new()
+		l_pre.text = "PRESET"
+		l_pre.custom_minimum_size.x = 120
+		h_pre.add_child(l_pre)
+		_system_preset_ob = OptionButton.new()
+		_system_preset_ob.size_flags_horizontal = SIZE_EXPAND_FILL
+		h_pre.add_child(_system_preset_ob)
+		_system_preset_ob.add_item("Custom (path below)")
+		_system_preset_ob.add_item("Gemma 4 E2B Heretic (Q4_K_M)")
+		_system_preset_ob.add_item("Nexus v1 (GGUF in model dir)")
+		_system_preset_ob.add_item("Soul 4B Q6")
+		_system_preset_ob.add_item("Ratatosk 1B tiny")
+		_system_preset_ob.add_item("Ollama relay (no GGUF reload)")
+		_system_preset_ob.item_selected.connect(_on_system_preset_selected)
+		var h_m := HBoxContainer.new()
+		vbox.add_child(h_m)
+		var l_m := Label.new()
+		l_m.text = "GGUF_PATH"
+		l_m.custom_minimum_size.x = 120
+		h_m.add_child(l_m)
+		_system_model_path_edit = LineEdit.new()
+		_system_model_path_edit.size_flags_horizontal = SIZE_EXPAND_FILL
+		_system_model_path_edit.placeholder_text = "Absolute path to .gguf on the soul host"
+		_system_model_path_edit.text = str(prefs.get("model_path", _PATH_GEMMA_HERETIC_DEFAULT))
+		h_m.add_child(_system_model_path_edit)
+		var h_mp := HBoxContainer.new()
+		vbox.add_child(h_mp)
+		var l_mp := Label.new()
+		l_mp.text = "MMPROJ_PATH"
+		l_mp.custom_minimum_size.x = 120
+		h_mp.add_child(l_mp)
+		_system_mmproj_path_edit = LineEdit.new()
+		_system_mmproj_path_edit.size_flags_horizontal = SIZE_EXPAND_FILL
+		_system_mmproj_path_edit.placeholder_text = "Optional mmproj.gguf (native VL)"
+		_system_mmproj_path_edit.text = str(prefs.get("mmproj_path", ""))
+		h_mp.add_child(_system_mmproj_path_edit)
+		var h_nv := HBoxContainer.new()
+		vbox.add_child(h_nv)
+		_system_native_vision_cb = CheckButton.new()
+		_system_native_vision_cb.text = "LUMAX_GGUF_NATIVE_VISION (mmproj + Llava handler)"
+		_system_native_vision_cb.button_pressed = bool(prefs.get("native_vision", false))
+		h_nv.add_child(_system_native_vision_cb)
+		var h_lc := HBoxContainer.new()
+		vbox.add_child(h_lc)
+		_system_local_caption_cb = CheckButton.new()
+		_system_local_caption_cb.text = "Local caption helper (when not native VL)"
+		_system_local_caption_cb.button_pressed = bool(prefs.get("local_caption", true))
+		h_lc.add_child(_system_local_caption_cb)
+		var h_cp := HBoxContainer.new()
+		vbox.add_child(h_cp)
+		var l_cp := Label.new()
+		l_cp.text = "CHAT_PROVIDER"
+		l_cp.custom_minimum_size.x = 120
+		h_cp.add_child(l_cp)
+		_system_chat_provider_ob = OptionButton.new()
+		_system_chat_provider_ob.size_flags_horizontal = SIZE_EXPAND_FILL
+		h_cp.add_child(_system_chat_provider_ob)
+		for prov in ["local", "openai", "gemini", "extra", "rotate", "splice"]:
+			_system_chat_provider_ob.add_item(prov)
+		var cp := str(prefs.get("chat_provider", "local"))
+		for i in range(_system_chat_provider_ob.item_count):
+			if _system_chat_provider_ob.get_item_text(i) == cp:
+				_system_chat_provider_ob.select(i)
+				break
+		var h_apply := HBoxContainer.new()
+		vbox.add_child(h_apply)
+		var apply_b := Button.new()
+		apply_b.text = "APPLY + RELOAD SOUL"
+		apply_b.custom_minimum_size = Vector2(280, 48)
+		h_apply.add_child(apply_b)
+		apply_b.pressed.connect(_apply_system_runtime_pressed)
+		var refresh_b := Button.new()
+		refresh_b.text = "Refresh status"
+		refresh_b.pressed.connect(_refresh_system_runtime_status)
+		h_apply.add_child(refresh_b)
+		_system_status_label = Label.new()
+		_system_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_system_status_label.text = "—"
+		vbox.add_child(_system_status_label)
+	panel.visible = true
+	_wire_system_synapse_once()
+	_refresh_system_runtime_status()
+
+
+func _refresh_system_runtime_status() -> void:
+	_wire_system_synapse_once()
+	var syn: Node = get_tree().get_first_node_in_group("lumax_synapse")
+	if syn and syn.has_method("fetch_soul_runtime_status"):
+		syn.fetch_soul_runtime_status()
+
 
 func _on_manual_setting_changed(setting: String, value: Variant):
 	_play_sfx("pop")
@@ -417,10 +912,16 @@ func _show_logs_panel():
 func _show_sentry_matrix():
 	var panel = _content_stack.get_node_or_null("SentryMatrix")
 	if not panel:
-		panel = GridContainer.new(); panel.columns = 2; panel.name = "SentryMatrix"; _content_stack.add_child(panel)
-		var metrics = ["VRAM_BUFF", "CORE_SYNC", "NET_LATENCY", "DISK_I/O", "THERMAL_STATE", "UPLOAD_FLUX", "DOWN_FLUX", "RESONANCE", "USER_IDLE", "MIND_DEPTH"]
+		panel = VBoxContainer.new(); panel.name = "SentryMatrix"; _content_stack.add_child(panel)
+		var title = Label.new()
+		title.text = "VITALS // HW HEALTH"
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		title.add_theme_font_size_override("font_size", 16)
+		panel.add_child(title)
+		var grid = GridContainer.new(); grid.columns = 2; grid.name = "VitalsGrid"; panel.add_child(grid)
+		var metrics = ["VRAM_BUFF", "CORE_SYNC", "SOUL_CPU_PCT", "HOST_CPU_PCT", "SYS_STRESS", "NET_LATENCY", "DISK_I/O", "THERMAL_STATE", "UPLOAD_FLUX", "DOWN_FLUX", "RESONANCE", "USER_IDLE", "MIND_DEPTH"]
 		for m in metrics:
-			var p = PanelContainer.new(); panel.add_child(p)
+			var p = PanelContainer.new(); grid.add_child(p)
 			var sb = StyleBoxFlat.new(); sb.bg_color = Color(1,1,1,0.05); sb.set_corner_radius_all(5); p.add_theme_stylebox_override("panel", sb)
 			var v = VBoxContainer.new(); p.add_child(v); v.alignment = BoxContainer.ALIGNMENT_CENTER
 			var l = Label.new(); l.text = m; l.add_theme_font_size_override("font_size", 12); v.add_child(l)
@@ -479,6 +980,53 @@ func _on_vitals_received(data: Dictionary):
 	for key in data.keys():
 		if _vitals_data.has(key):
 			_vitals_data[key].text = str(data[key])
+	var soul_cpu = _to_float_vital(data.get("SOUL_CPU_PCT", -1.0))
+	var host_cpu = _to_float_vital(data.get("HOST_CPU_PCT", -1.0))
+	if soul_cpu >= 0.0:
+		_last_soul_cpu_pct = soul_cpu
+	if host_cpu >= 0.0:
+		_last_host_cpu_pct = host_cpu
+	_update_stress_ui_state()
+
+func _to_float_vital(v: Variant) -> float:
+	if typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT:
+		return float(v)
+	var s := str(v).replace("%", "").strip_edges()
+	if not s.is_valid_float():
+		return -1.0
+	return s.to_float()
+
+func _update_stress_ui_state() -> void:
+	var soul_cpu := _last_soul_cpu_pct
+	if soul_cpu < 0.0:
+		return
+	if soul_cpu >= STRESS_HOT_PCT:
+		_stress_latched = true
+	elif _stress_latched and soul_cpu <= STRESS_CLEAR_PCT:
+		_stress_latched = false
+	if _stress_banner:
+		_stress_banner.visible = _stress_latched
+		if _stress_latched:
+			var host_txt := ("%.0f%%" % _last_host_cpu_pct) if _last_host_cpu_pct >= 0.0 else "?"
+			_stress_banner.text = "GUARDIAN ALERT: HIGH LOAD (Soul %.0f%% | Host %s)" % [soul_cpu, host_txt]
+	if _vitals_data.has("SYS_STRESS"):
+		var lab: Label = _vitals_data["SYS_STRESS"]
+		if lab:
+			lab.text = "HIGH" if _stress_latched else "NORMAL"
+			lab.add_theme_color_override("font_color", Color(1.0, 0.32, 0.32) if _stress_latched else Color(0.5, 1.0, 0.7))
+	_update_hub_tab_visuals()
+
+func _update_hub_tab_visuals() -> void:
+	for hub in _hub_buttons.keys():
+		var btn: Button = _hub_buttons[hub]
+		if btn == null:
+			continue
+		btn.remove_theme_color_override("font_color")
+	if _stress_latched:
+		if _hub_buttons.has("BODY") and _hub_buttons["BODY"]:
+			(_hub_buttons["BODY"] as Button).add_theme_color_override("font_color", Color(1.0, 0.28, 0.28))
+		if _hub_buttons.has("CORE") and _hub_buttons["CORE"]:
+			(_hub_buttons["CORE"] as Button).add_theme_color_override("font_color", Color(1.0, 0.55, 0.18))
 
 func _show_manifest_placeholder(type: String):
 	var panel = _content_stack.get_node_or_null("ManifestPanel")
@@ -675,7 +1223,10 @@ func _recursive_vrm_scan(path: String, out_list: Array):
 				if file_name.ends_with(".vrm"):
 					out_list.append(path + file_name)
 			file_name = dir.get_next()
-func _show_agency_panel(): chat_log.visible = true; add_message("AGENCY", "Autonomous intent engaged.")
+func _show_agency_panel():
+	if _chat_column:
+		_chat_column.visible = true
+	add_message("AGENCY", "Autonomous intent engaged.")
 
 func _on_mbti_selected(mbti: String):
 	add_message("SYSTEM", "EVOLVING SOUL TO ARCHETYPE: " + mbti)
@@ -771,6 +1322,7 @@ func _show_emotions_panel():
 			var b = Button.new(); b.text = e; b.custom_minimum_size = Vector2(120, 120); panel.add_child(b)
 			if e == "SENSE_ENV":
 				b.add_theme_color_override("font_color", Color.ORANGE)
+				b.tooltip_text = "Send your vision to Jen. Pick feed in CORE → SETTINGS: PC screen, user webcam, personal/2nd webcam, or headset (passthrough / XR / VR)."
 				b.pressed.connect(func(): vision_sensing_requested.emit())
 			elif e == "DREAM":
 				b.add_theme_color_override("font_color", Color.VIOLET)
@@ -792,10 +1344,16 @@ func _show_emotions_panel():
 
 func update_shared_views(user_tex: Texture2D, jen_tex: Texture2D):
 	var panel = _content_stack.get_node_or_null("ConferencePanel")
-	if panel:
-		var grid = panel.get_node("ConfPanel/HGrid")
-		grid.get_node("UserPOV").texture = user_tex
-		grid.get_node("JenPOV").texture = jen_tex
+	if not panel:
+		return
+	var grid = panel.get_node_or_null("ConfPanel/HGrid")
+	if not grid:
+		return
+	var user_pov = grid.get_node_or_null("UserPOV")
+	var jen_pov = grid.get_node_or_null("JenPOV")
+	if user_pov and jen_pov:
+		user_pov.texture = user_tex
+		jen_pov.texture = jen_tex
 		panel.show()
 
 func update_buffer(text: String): 

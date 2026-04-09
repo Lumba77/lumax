@@ -62,10 +62,13 @@ const SUPPRESS_MASK := 0b0000_0000_0100_0000_0000_0000_0000_0000
 @export var laser_length : LaserLength = LaserLength.FULL: set = set_laser_length
 
 ## Laser pointer material
-@export var laser_material : StandardMaterial3D = null : set = set_laser_material
+@export var laser_material : Material = null : set = set_laser_material
 
 ## Laser pointer material when hitting target
-@export var laser_hit_material : StandardMaterial3D = null : set = set_laser_hit_material
+@export var laser_hit_material : Material = null : set = set_laser_hit_material
+
+## Laser pointer material when trigger is held on a hit
+@export var laser_pressed_material : Material = null : set = set_laser_pressed_material
 
 @export_group("Target")
 
@@ -76,7 +79,7 @@ const SUPPRESS_MASK := 0b0000_0000_0100_0000_0000_0000_0000_0000
 @export var target_radius : float = 0.05: set = set_target_radius
 
 ## Target material
-@export var target_material : StandardMaterial3D = null : set = set_target_material
+@export var target_material : Material = null : set = set_target_material
 
 @export_group("Collision")
 
@@ -87,7 +90,7 @@ const SUPPRESS_MASK := 0b0000_0000_0100_0000_0000_0000_0000_0000
 @export var collide_with_bodies : bool = true: set = set_collide_with_bodies
 
 ## Enable pointer collision with areas
-@export var collide_with_areas : bool = false: set = set_collide_with_areas
+@export var collide_with_areas : bool = true: set = set_collide_with_areas
 
 @export_group("Suppression")
 
@@ -96,6 +99,10 @@ const SUPPRESS_MASK := 0b0000_0000_0100_0000_0000_0000_0000_0000
 
 ## Suppress mask
 @export_flags_3d_physics var suppress_mask : int = SUPPRESS_MASK: set = set_suppress_mask
+## Keep beam/dot alive briefly over tiny UI key gaps to reduce flicker.
+@export var hit_grace_sec : float = 0.08
+## Debounce rapid repeated button-pressed events from flaky runtimes/link layers.
+@export var press_debounce_sec : float = 0.12
 
 
 ## Current target node
@@ -106,6 +113,7 @@ var last_target : Node3D = null
 
 ## Last collision point
 var last_collided_at : Vector3 = Vector3.ZERO
+var _last_collision_normal : Vector3 = Vector3.UP
 
 # World scale
 var _world_scale : float = 1.0
@@ -118,6 +126,11 @@ var _controller_right_node : XRController3D
 
 # The currently active controller
 var _active_controller : XRController3D
+
+# Trigger-press visual state for laser color swap
+var _trigger_pressed : bool = false
+var _hit_lost_timer : float = 0.0
+var _last_press_msec : int = 0
 
 
 ## Add support for is_xr_class on XRTools classes
@@ -226,22 +239,37 @@ func _process(delta):
 
 	# Find the new pointer target
 	var new_target : Node3D
-	var new_at : Vector3
-	var suppress_area := $SuppressArea
+	var new_at : Vector3 = Vector3.ZERO
+	var new_normal : Vector3 = Vector3.UP
+	var has_hit : bool = false
 	if (enabled and
-		not $SuppressArea.has_overlapping_bodies() and
-		not $SuppressArea.has_overlapping_areas() and
 		$RayCast.is_colliding()):
+		has_hit = true
 		new_at = $RayCast.get_collision_point()
+		new_normal = $RayCast.get_collision_normal()
 		if target:
 			# Locked to 'target' even if we're colliding with something else
 			new_target = target
 		else:
 			# Target is whatever the raycast is colliding with
-			new_target = $RayCast.get_collider()
+			new_target = $RayCast.get_collider() as Node3D
 
-	# If no current or previous collisions then skip
+	# Keep visuals based on ray hit presence, independent of target event eligibility.
+	if has_hit:
+		_hit_lost_timer = 0.0
+		_visible_hit(new_at, new_normal)
+	else:
+		_hit_lost_timer += delta
+		if _hit_lost_timer <= maxf(0.0, hit_grace_sec) and last_collided_at != Vector3.ZERO:
+			_visible_hit(last_collided_at, _last_collision_normal)
+		else:
+			_visible_miss()
+
+	# If no current or previous *targets* then skip pointer-event dispatch.
 	if not new_target and not last_target:
+		if has_hit:
+			last_collided_at = new_at
+			_last_collision_normal = new_normal
 		return
 
 	# Handle pointer changes
@@ -252,14 +280,9 @@ func _process(delta):
 		# Pointer moved on new_target for the first time
 		XRToolsPointerEvent.moved(self, new_target, new_at, new_at)
 
-		# Update visible artifacts for hit
-		_visible_hit(new_at)
 	elif not new_target and last_target:
 		# Pointer exited last_target
 		XRToolsPointerEvent.exited(self, last_target, last_collided_at)
-
-		# Update visible artifacts for miss
-		_visible_miss()
 	elif new_target != last_target:
 		# Pointer exited last_target
 		XRToolsPointerEvent.exited(self, last_target, last_collided_at)
@@ -270,18 +293,17 @@ func _process(delta):
 		# Pointer moved on new_target
 		XRToolsPointerEvent.moved(self, new_target, new_at, new_at)
 
-		# Move visible artifacts
-		_visible_move(new_at)
 	elif new_at != last_collided_at:
 		# Pointer moved on new_target
 		XRToolsPointerEvent.moved(self, new_target, new_at, last_collided_at)
 
-		# Move visible artifacts
-		_visible_move(new_at)
+		_visible_move(new_at, new_normal)
 
 	# Update last values
 	last_target = new_target
-	last_collided_at = new_at
+	if has_hit:
+		last_collided_at = new_at
+		_last_collision_normal = new_normal
 
 
 # Set pointer enabled property
@@ -320,15 +342,22 @@ func set_laser_length(p_laser_length : LaserLength) -> void:
 
 
 # Set pointer laser_material property
-func set_laser_material(p_laser_material : StandardMaterial3D) -> void:
+func set_laser_material(p_laser_material : Material) -> void:
 	laser_material = p_laser_material
 	if is_inside_tree():
 		_update_pointer()
 
 
 # Set pointer laser_hit_material property
-func set_laser_hit_material(p_laser_hit_material : StandardMaterial3D) -> void:
+func set_laser_hit_material(p_laser_hit_material : Material) -> void:
 	laser_hit_material = p_laser_hit_material
+	if is_inside_tree():
+		_update_pointer()
+
+
+# Set pointer laser_pressed_material property
+func set_laser_pressed_material(p_laser_pressed_material : Material) -> void:
+	laser_pressed_material = p_laser_pressed_material
 	if is_inside_tree():
 		_update_pointer()
 
@@ -348,7 +377,7 @@ func set_target_radius(p_target_radius : float) -> void:
 
 
 # Set pointer target_material property
-func set_target_material(p_target_material : StandardMaterial3D) -> void:
+func set_target_material(p_target_material : Material) -> void:
 	target_material = p_target_material
 	if is_inside_tree():
 		_update_target_material()
@@ -439,7 +468,7 @@ func _update_suppress_mask() -> void:
 # Pointer visible artifacts update handler
 func _update_pointer() -> void:
 	if enabled and last_target:
-		_visible_hit(last_collided_at)
+		_visible_hit(last_collided_at, _last_collision_normal)
 	else:
 		_visible_miss()
 
@@ -465,6 +494,12 @@ func _button_released() -> void:
 # Button pressed handler
 func _on_button_pressed(p_button : String, controller : XRController3D) -> void:
 	if p_button == active_button_action and enabled:
+		var now_ms := Time.get_ticks_msec()
+		if now_ms - _last_press_msec < int(maxf(0.0, press_debounce_sec) * 1000.0):
+			return
+		_last_press_msec = now_ms
+		_trigger_pressed = true
+		_update_pointer()
 		if controller == _active_controller:
 			_button_pressed()
 		else:
@@ -473,23 +508,58 @@ func _on_button_pressed(p_button : String, controller : XRController3D) -> void:
 
 # Button released handler
 func _on_button_released(p_button : String, _controller : XRController3D) -> void:
-	if p_button == active_button_action and target:
-		_button_released()
+	if p_button == active_button_action:
+		_trigger_pressed = false
+		_update_pointer()
+		if target:
+			_button_released()
 
 
 # Update the laser active material
 func _update_laser_active_material(hit : bool) -> void:
-	if hit and laser_hit_material:
+	if hit and _trigger_pressed and laser_pressed_material:
+		$Laser.set_surface_override_material(0, laser_pressed_material)
+	elif hit and laser_hit_material:
 		$Laser.set_surface_override_material(0, laser_hit_material)
 	else:
 		$Laser.set_surface_override_material(0, laser_material)
 
 
+# Keep beam-length shader params in sync with dynamic laser size.
+func _update_laser_shader_params(length_m : float) -> void:
+	var visual_len := maxf(length_m, 0.12)
+	for mat in [laser_material, laser_hit_material, laser_pressed_material]:
+		if mat is ShaderMaterial:
+			(mat as ShaderMaterial).set_shader_parameter("beam_len_m", visual_len)
+
+
+func _set_laser_length_m(length_m : float) -> void:
+	$Laser.mesh.size.z = length_m
+	$Laser.position.z = length_m * -0.5
+	_update_laser_shader_params(length_m)
+
+
+# Choose a stable front-of-surface direction for the target dot.
+# We align the collision normal so it points toward the controller origin.
+func _target_front_dir(at : Vector3, normal : Vector3) -> Vector3:
+	var n := normal.normalized()
+	if n.length_squared() < 0.0001:
+		n = (global_transform.origin - at).normalized()
+	if n.length_squared() < 0.0001:
+		n = Vector3.UP
+	var to_controller := (global_transform.origin - at).normalized()
+	if to_controller.length_squared() > 0.0001 and n.dot(to_controller) < 0.0:
+		n = -n
+	return n
+
+
 # Update the visible artifacts to show a hit
-func _visible_hit(at : Vector3) -> void:
+func _visible_hit(at : Vector3, normal : Vector3 = Vector3.UP) -> void:
 	# Show target if enabled
 	if show_target:
-		$Target.global_transform.origin = at
+		var front_dir := _target_front_dir(at, normal)
+		# Keep dot clearly in front of UI surfaces/colliders.
+		$Target.global_transform.origin = at + (front_dir * 0.012)
 		$Target.visible = true
 
 	# Control laser visibility
@@ -500,11 +570,9 @@ func _visible_hit(at : Vector3) -> void:
 		# Adjust laser length
 		if laser_length == LaserLength.COLLIDE:
 			var collide_len : float = at.distance_to(global_transform.origin)
-			$Laser.mesh.size.z = collide_len
-			$Laser.position.z = collide_len * -0.5
+			_set_laser_length_m(collide_len)
 		else:
-			$Laser.mesh.size.z = distance
-			$Laser.position.z = distance * -0.5
+			_set_laser_length_m(distance)
 
 		# Show laser
 		$Laser.visible = true
@@ -514,16 +582,16 @@ func _visible_hit(at : Vector3) -> void:
 
 
 # Move the visible pointer artifacts to the target
-func _visible_move(at : Vector3) -> void:
+func _visible_move(at : Vector3, normal : Vector3 = Vector3.UP) -> void:
 	# Move target if configured
 	if show_target:
-		$Target.global_transform.origin = at
+		var front_dir := _target_front_dir(at, normal)
+		$Target.global_transform.origin = at + (front_dir * 0.012)
 
 	# Adjust laser length if set to collide-length
 	if laser_length == LaserLength.COLLIDE:
 		var collide_len : float = at.distance_to(global_transform.origin)
-		$Laser.mesh.size.z = collide_len
-		$Laser.position.z = collide_len * -0.5
+		_set_laser_length_m(collide_len)
 
 
 # Update the visible artifacts to show a miss
@@ -538,5 +606,4 @@ func _visible_miss() -> void:
 	$Laser.visible = show_laser == LaserShow.SHOW
 
 	# Restore laser length if set to collide-length
-	$Laser.mesh.size.z = distance
-	$Laser.position.z = distance * -0.5
+	_set_laser_length_m(distance)

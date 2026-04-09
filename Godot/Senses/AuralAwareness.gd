@@ -5,10 +5,14 @@ signal recording_state_changed(is_recording: bool)
 
 @export var synapse: Node = null : set = set_synapse
 
+const _MIN_STT_WAV_BYTES: int = 20000
+
 var _mic_player: AudioStreamPlayer
 var _audio_effect_record: AudioEffectRecord
 var _is_recording: bool = false
 var _record_bus_idx: int = -1
+var _synapse_rebind_timer: float = 0.0
+var _instance_enabled: bool = true
 
 func set_synapse(val: Node) -> void:
 	synapse = val
@@ -18,77 +22,41 @@ func set_synapse(val: Node) -> void:
 			print("LUMAX: AuralAwareness connected to Synapse STT signal.")
 
 func _ready() -> void:
+	var singleton = get_node_or_null("/root/AuralAwareness")
+	if singleton != null and singleton != self:
+		_instance_enabled = false
+		set_process(false)
+		print("LUMAX: AuralAwareness secondary instance disabled at %s" % String(get_path()))
+		return
 	print("LUMAX: AuralAwareness initializing...")
-	if OS.get_name() == "Android":
-		OS.request_permissions()
-	_ensure_audio_setup()
-
-func _ensure_audio_setup():
-	var bus_index = AudioServer.get_bus_index("Record")
-	if bus_index == -1:
-		print("LUMAX: 'Record' bus NOT FOUND. Creating dynamically...")
-		AudioServer.add_bus()
-		bus_index = AudioServer.bus_count - 1
-		AudioServer.set_bus_name(bus_index, "Record")
-		AudioServer.set_bus_send(bus_index, "Master")
-		AudioServer.set_bus_mute(bus_index, false)
-	
-	# Ensure Record effect exists
-	var effect_found = false
-	for i in range(AudioServer.get_bus_effect_count(bus_index)):
-		if AudioServer.get_bus_effect(bus_index, i) is AudioEffectRecord:
-			effect_found = true
-			break
-	
-	if not effect_found:
-		print("LUMAX: Adding AudioEffectRecord to 'Record' bus.")
-		AudioServer.add_bus_effect(bus_index, AudioEffectRecord.new())
-	
-	# Link to the capture device (microphone)
-	AudioServer.set_bus_layout(AudioServer.generate_bus_layout())
-	print("LUMAX: Audio Bus Setup COMPLETE.")
-	
-	if OS.get_name() == "Android":
-		OS.request_permission("RECORD_AUDIO")
-		print("LUMAX: Requesting Android Permission (RECORD_AUDIO)...")
-	
-	_list_audio_devices()
 	_setup_audio_bus()
 	# Call setter logic in case it was set via editor/before ready
 	set_synapse(synapse)
+	if synapse == null:
+		_try_autobind_synapse()
 
-func _list_audio_devices() -> void:
-	var devices = AudioServer.get_input_device_list()
-	print("LUMAX: Audio Input Devices Found: ", devices.size())
-	for d in devices:
-		print("  - Device: ", d)
-	
-	_select_best_mic(devices)
+func _process(_delta: float) -> void:
+	if not _instance_enabled:
+		return
+	# Fail-safe: microphone playback must never stay active outside PTT recording.
+	if not _is_recording and _mic_player and _mic_player.playing:
+		_mic_player.stop()
+	# Autoload instance may start before LumaxCore/Soul exists; retry bind lazily.
+	if synapse == null:
+		_synapse_rebind_timer -= _delta
+		if _synapse_rebind_timer <= 0.0:
+			_synapse_rebind_timer = 1.0
+			_try_autobind_synapse()
 
-func _select_best_mic(devices: Array) -> void:
-	var preferred = ["Quest", "Android", "Oculus"]
-	var fallback = "MIC-HD"
-	
-	var chosen = ""
-	for p in preferred:
-		for d in devices:
-			if p.to_lower() in d.to_lower():
-				chosen = d
-				break
-		if chosen != "": break
-	
-	if chosen == "":
-		for d in devices:
-			if fallback.to_lower() in d.to_lower():
-				chosen = d
-				break
-				
-	if chosen != "":
-		AudioServer.input_device = chosen
-		print("LUMAX: Selected Microphone -> ", chosen)
-	else:
-		print("LUMAX: Using default system microphone.")
-
+func _try_autobind_synapse() -> void:
+	var s: Node = get_node_or_null("/root/LumaxCore/Soul")
+	if s == null and get_tree():
+		s = get_tree().root.find_child("Soul", true, false)
+	if s == null and get_tree():
+		s = get_tree().root.find_child("Synapse", true, false)
+	if s != null:
+		set_synapse(s)
+		print("LUMAX: AuralAwareness auto-bound synapse: %s" % String(s.get_path()))
 
 func _setup_audio_bus() -> void:
 	# 1. Create a dedicated Record bus
@@ -113,77 +81,75 @@ func _setup_audio_bus() -> void:
 	
 	if not has_effect:
 		AudioServer.add_bus_effect(_record_bus_idx, _audio_effect_record)
+	_audio_effect_record.set_recording_active(false)
 	
 	# 3. Create the Microphone Stream Player
-	_mic_player = AudioStreamPlayer.new()
-	_mic_player.stream = AudioStreamMicrophone.new()
-	_mic_player.bus = "Record"
-	add_child(_mic_player)
-	_mic_player.play() # Must be playing to capture data
+	if _mic_player == null:
+		_mic_player = AudioStreamPlayer.new()
+		_mic_player.stream = AudioStreamMicrophone.new()
+		_mic_player.bus = "Record"
+		add_child(_mic_player)
 
 func start_recording() -> void:
+	if not _instance_enabled:
+		return
 	if _is_recording: return
 	_is_recording = true
-	LogMaster.log_info("AURAL: Mic Recording STARTED")
+	print("LUMAX: MIC RECORDING STARTED")
+	if _mic_player and not _mic_player.playing:
+		_mic_player.play()
 	_audio_effect_record.set_recording_active(true)
 	recording_state_changed.emit(true)
 
-func _ensure_synapse():
-	if is_instance_valid(synapse): return true
-	
-	LogMaster.log_info("AURAL: Searching for Synapse in tree...")
-	# 1. Check siblings in Nexus
-	var p = get_parent()
-	if p:
-		var s = p.get_node_or_null("Soul")
-		if not s: s = p.get_node_or_null("Synapse")
-		if s: 
-			set_synapse(s)
-			LogMaster.log_info("AURAL: Found Synapse sibling!")
-			return true
-			
-	# 2. Global search
-	var root = get_tree().root
-	var nodes = root.find_children("*", "LumaxSynapse", true, false)
-	if nodes.size() > 0:
-		set_synapse(nodes[0])
-		LogMaster.log_info("AURAL: Found Synapse via global search!")
-		return true
-		
-	return false
-
 func stop_recording() -> void:
+	if not _instance_enabled:
+		return
 	if not _is_recording: return
 	_is_recording = false
-	var recording = _audio_effect_record.get_recording()
 	_audio_effect_record.set_recording_active(false)
-	LogMaster.log_info("AURAL: Mic Recording STOPPED. Analyzing buffer...")
+	if _mic_player and _mic_player.playing:
+		_mic_player.stop()
+	print("LUMAX: MIC RECORDING STOPPED. Processing...")
 
-	if not _ensure_synapse():
-		LogMaster.log_error("AURAL ERR: Synapse node STILL not found after search!")
-	elif not recording:
-		LogMaster.log_error("AURAL ERR: No recording data captured from AudioEffectRecord.")
-	else:
+	var recording = _audio_effect_record.get_recording()
+	if recording == null:
+		print("LUMAX ERR: No recording buffer — hold the mic button longer or check Quest mic permission.")
+	elif synapse == null:
+		_try_autobind_synapse()
+		if synapse != null:
+			# Continue to send below in this same stop cycle.
+			pass
+		else:
+			print("LUMAX ERR: AuralAwareness.synapse not set — STT cannot run.")
+			recording_state_changed.emit(false)
+			return
+	if recording and synapse:
 		var wav = recording.save_to_wav("user://capture.wav")
 		if wav == OK:
 			var f = FileAccess.open("user://capture.wav", FileAccess.READ)
 			if f:
 				var data = f.get_buffer(f.get_length())
-				LogMaster.log_info("AURAL: Captured WAV size: " + str(data.size()) + " bytes")
-				if data.size() > 100: # WAV header is 44 bytes
-					if synapse.has_method("send_voice_to_stt"):
-						synapse.send_voice_to_stt(data)
-						LogMaster.log_info("AURAL: Data dispatched to Synapse STT.")
-					else:
-						LogMaster.log_error("AURAL ERR: Synapse missing send_voice_to_stt method!")
+				f.close()
+				if data.size() < _MIN_STT_WAV_BYTES:
+					print("LUMAX ERR: Captured WAV too small (%d bytes) — silence or mic not routed to Record bus." % data.size())
+				elif synapse.has_method("send_voice_to_stt"):
+					synapse.call("send_voice_to_stt", data)
 				else:
-					LogMaster.log_error("AURAL ERR: Captured audio is too small (likely empty).")
+					print("LUMAX ERR: Synapse missing send_voice_to_stt method!")
 			else:
-				LogMaster.log_error("AURAL ERR: Failed to open user://capture.wav for reading.")
+				print("LUMAX ERR: Could not open user://capture.wav")
 		else:
-			LogMaster.log_error("AURAL ERR: Failed to save WAV capture. Error code: " + str(wav))
+			print("LUMAX ERR: Failed to save WAV capture (err=%s)." % str(wav))
 
 	recording_state_changed.emit(false)
+
+func _exit_tree() -> void:
+	if not _instance_enabled:
+		return
+	if _audio_effect_record:
+		_audio_effect_record.set_recording_active(false)
+	if _mic_player and _mic_player.playing:
+		_mic_player.stop()
 
 func _on_stt_received(text: String) -> void:
 	print("LUMAX: transcription received: ", text)

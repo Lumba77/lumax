@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://csrqra2e7g48m"
-path="res://.godot/imported/Blond girl.vrm.png-38f570d8fde3d9ec82776438b3b2a010.ctex"
+path="res://.godot/imported/Blond girl.vrm.png-646bb1bbe25e9d1687fddb8ff26f306a.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://vrm/Blond girl.vrm.png"
-dest_files=["res://.godot/imported/Blond girl.vrm.png-38f570d8fde3d9ec82776438b3b2a010.ctex"]
+dest_files=["res://.godot/imported/Blond girl.vrm.png-646bb1bbe25e9d1687fddb8ff26f306a.ctex"]
 
 [params]
 

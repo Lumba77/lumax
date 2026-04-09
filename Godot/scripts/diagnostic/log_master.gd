@@ -10,6 +10,10 @@ var _log_path: String = "user://logs/lumax_diagnostic.log"
 var _log_buffer: Array[String] = []
 const MAX_BUFFER = 50
 
+func _init() -> void:
+	# Earliest autoload hook; if you see nothing after this on Quest, the crash is native (export/OpenXR) before GDScript runs.
+	print("LUMAX: LogMaster _init (boot step 1)")
+
 func _ready():
 	# Ensure directory exists
 	if not DirAccess.dir_exists_absolute("user://logs"):
@@ -21,6 +25,8 @@ func _ready():
 		_log_file.flush()
 		_push_to_buffer("DIAGNOSTIC SESSION STARTED", "SYSTEM")
 		print("LUMAX: Diagnostic Log Master active at " + _log_path)
+		if OS.get_name() == "Android":
+			print("LUMAX: Android user_data (adb: run-as com.lumax_current.core or check godot logcat): ", OS.get_user_data_dir())
 	
 func log_info(msg: String):
 	if _log_file:
@@ -59,8 +65,14 @@ func get_logs() -> Array[String]:
 	return _log_buffer
 
 func _notification(what):
-	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_EXIT_TREE:
-		if _log_file:
-			_log_file.store_line("--- SESSION ENDED ---")
-			_log_file.close()
-
+	if what != NOTIFICATION_WM_CLOSE_REQUEST and what != NOTIFICATION_EXIT_TREE:
+		return
+	# WM_CLOSE_REQUEST and EXIT_TREE can both run; after close() the FileAccess ref may still be
+	# non-null while the native handle is gone — second store_line() hits "Parameter f is null".
+	if _log_file == null:
+		return
+	var f: FileAccess = _log_file
+	_log_file = null
+	f.store_line("--- SESSION ENDED ---")
+	f.flush()
+	f.close()

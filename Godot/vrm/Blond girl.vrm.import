@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bvh7ausodgmxh"
-path="res://.godot/imported/Blond girl.vrm-955041c363a7efd6375fc15f9cc6947a.scn"
+path="res://.godot/imported/Blond girl.vrm-45d9632de75e99ae569652ed803f03d9.scn"
 
 [deps]
 
 source_file="res://vrm/Blond girl.vrm"
-dest_files=["res://.godot/imported/Blond girl.vrm-955041c363a7efd6375fc15f9cc6947a.scn"]
+dest_files=["res://.godot/imported/Blond girl.vrm-45d9632de75e99ae569652ed803f03d9.scn"]
 
 [params]
 

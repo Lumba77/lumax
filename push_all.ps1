@@ -1,5 +1,6 @@
 # push_all.ps1 - Ultimate Sync for Lumax (v2.6)
-# Fixes: Forces Animations inclusion, Corrects project.godot logic
+# Syncs everything under Godot/ to Quest except .godot (editor cache — never upload).
+# Per-folder .import sidecars are included so the headset can resolve UIDs without a local import.
 
 param (
     [string]$Target = "godot",
@@ -18,8 +19,14 @@ if ($adbDevices.Count -eq 0) {
 $DEVICE_ID = $adbDevices[0].ToString().Split("`t")[0].Trim()
 Write-Host "🎯 Target Device: $DEVICE_ID" -ForegroundColor Cyan
 
-# Define local paths
-$SourceGodot = "C:\Users\lumba\Program\Lumax\Godot"
+# Repo root = folder containing this script (Lumax_current, Lumax, etc.)
+$RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$SourceGodot = Join-Path $RepoRoot "Godot"
+
+# Never push these names (PC-only / huge / breaks on device). .import files beside assets ARE pushed.
+$NeverPush = @(
+    ".godot"
+)
 
 # 1. RESET THE AI BRIDGE (Quest -> PC)
 Write-Host "🔄 Resetting AI Communication Ports (STT/TTS/WEB)..." -ForegroundColor Yellow
@@ -27,7 +34,10 @@ adb -s $DEVICE_ID reverse --remove-all
 adb -s $DEVICE_ID reverse tcp:8000 tcp:8000 # Soul
 adb -s $DEVICE_ID reverse tcp:8001 tcp:8001 # Ears
 adb -s $DEVICE_ID reverse tcp:8002 tcp:8002 # Mouth
+adb -s $DEVICE_ID reverse tcp:8004 tcp:8004 # Creativity
 adb -s $DEVICE_ID reverse tcp:8005 tcp:8005 # Turbo TTS
+adb -s $DEVICE_ID reverse tcp:8006 tcp:8006 # Sentry
+adb -s $DEVICE_ID reverse tcp:8020 tcp:8020 # Optional legacy XTTS (not lumax_turbochat)
 adb -s $DEVICE_ID reverse tcp:8080 tcp:8080 # Web Bridge
 adb -s $DEVICE_ID reverse tcp:6006 tcp:6006 # Console
 adb -s $DEVICE_ID reverse tcp:6007 tcp:6007 # Logs
@@ -36,13 +46,22 @@ adb -s $DEVICE_ID reverse tcp:6007 tcp:6007 # Logs
 function Push-Safe {
     param($src, $dest)
     Write-Host "📂 Scanning: $src" -ForegroundColor Cyan
-    
-    $items = Get-ChildItem -Path $src
+
+    # Drop stale editor cache on Quest if an old sync ever created it
+    adb -s $DEVICE_ID shell "rm -rf `"$dest/.godot`"" 2>$null
+
+    $items = Get-ChildItem -Path $src -Force
     foreach ($item in $items) {
-        # SKIP THE MASSIVE CACHE FOLDERS
-        if ($item.PSIsContainer -and ($item.Name -eq ".godot" -or $item.Name -eq ".import")) { continue }
-        
+        if ($NeverPush -contains $item.Name) {
+            Write-Host "⏭️  Skip (not for Quest): $($item.Name)" -ForegroundColor DarkGray
+            continue
+        }
+
         Write-Host "📤 Syncing: $($item.Name)" -ForegroundColor Gray
+        $targetPath = $dest + "/" + $item.Name
+        
+        # NUCLEAR SAFE: Wipe the target on Quest first to prevent nesting (addons/addons)
+        adb -s $DEVICE_ID shell "rm -rf $targetPath"
         adb -s $DEVICE_ID push $item.FullName $dest
     }
 }
@@ -52,10 +71,12 @@ if ($Target -eq "godot") {
     Write-Host "🚀 Running Core Logic Sync..." -ForegroundColor Green
     Push-Safe $SourceGodot $QuestRoot
 } elseif ($Target -eq "clean") {
-    Write-Host "🧹 CLEANING QUEST CACHE (.godot & .import)..." -ForegroundColor Red
-    adb -s $DEVICE_ID shell rm -rf "$QuestRoot/.godot"
-    adb -s $DEVICE_ID shell rm -rf "$QuestRoot/.import"
-    Write-Host "🚀 Running Fresh Sync..." -ForegroundColor Green
+    Write-Host "🧹 TOTAL REFRESH: Purging and Re-uploading entire project to Quest..." -ForegroundColor Red
+    # 1. Nuking everything on the Quest for this project
+    adb -s $DEVICE_ID shell "rm -rf $QuestRoot"
+    adb -s $DEVICE_ID shell "mkdir -p $QuestRoot"
+    
+    # 2. Re-creating the directory and performing a full sync
     Push-Safe $SourceGodot $QuestRoot
 }
 

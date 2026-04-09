@@ -8,9 +8,24 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-# Resolve absolute path
+# Resolve absolute path; strip repo root (works from Lumax_current, Lumax, or clones).
 $FullSourcePath = Resolve-Path $SourcePath
-$RelativePath = $FullSourcePath.Path.Replace("C:\Users\lumba\Program\Lumax\", "").Replace("C:\Users\lumba\Program\Lumax", "")
+$RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$RelativePath = $FullSourcePath.Path
+foreach ($root in @(
+        $RepoRoot,
+        (Join-Path (Split-Path $RepoRoot -Parent) "Lumax"),
+        (Join-Path (Split-Path $RepoRoot -Parent) "Lumax_current")
+    )) {
+    if (-not $root) { continue }
+    try {
+        $r = (Resolve-Path $root -ErrorAction Stop).Path.TrimEnd("\")
+        if ($RelativePath.StartsWith($r, [StringComparison]::OrdinalIgnoreCase)) {
+            $RelativePath = $RelativePath.Substring($r.Length).TrimStart("\")
+            break
+        }
+    } catch { }
+}
 
 # Determine final destination on Quest
 if ($RelativePath -ne "") {

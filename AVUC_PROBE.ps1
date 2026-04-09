@@ -3,6 +3,9 @@
 
 $QUEST_IP = "100.64.150.192"
 $TARGET_DIR = "/sdcard/Projects/Lumax-Vulkan/Godot/"
+# Local Godot tree: repo root = this script's directory
+$RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$LocalGodotRoot = Join-Path $RepoRoot "Godot"
 
 function Get-QuestFileHash($filePath) {
     $output = adb shell md5sum "$TARGET_DIR$filePath"
@@ -11,7 +14,7 @@ function Get-QuestFileHash($filePath) {
 }
 
 function Get-LocalFileHash($filePath) {
-    $hash = Get-FileHash -Path "c:\Users\lumba\Program\Lumax\Godot\$filePath" -Algorithm MD5
+    $hash = Get-FileHash -Path (Join-Path $LocalGodotRoot $filePath) -Algorithm MD5
     return $hash.Hash.ToLower()
 }
 

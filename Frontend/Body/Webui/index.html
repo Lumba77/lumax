@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumax — Your everything for life</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;700&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff007f;
+            --neon-green: #39ff14;
+            --bg-dark: #02050a;
+            --glass-bg: rgba(10, 15, 25, 0.7);
+            --glass-blur: blur(15px);
+            --border: rgba(0, 243, 255, 0.2);
+            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: #e0e0e0;
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            background-image:
+                radial-gradient(circle at 50% 50%, rgba(0, 243, 255, 0.05) 0%, transparent 50%),
+                linear-gradient(rgba(10, 15, 25, 0.9), rgba(2, 5, 10, 1));
+        }
+
+        /* Scanline Overlay */
+        body::after {
+            content: " ";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.05) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.3;
+        }
+
+        .header {
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            z-index: 2;
+        }
+
+        .title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.35rem;
+            letter-spacing: 3px;
+            color: var(--neon-blue);
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+            line-height: 1.2;
+        }
+
+        .title-tagline {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.68rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+            color: rgba(224, 224, 224, 0.55);
+            margin-top: 4px;
+        }
+
+        .nexus-grid {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            flex: 1;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            background: rgba(5, 10, 20, 0.6);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 15px 0;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .nav-group {
+            margin-bottom: 20px;
+        }
+
+        .nav-label {
+            padding: 0 20px 8px;
+            font-size: 0.65rem;
+            font-family: 'Orbitron', sans-serif;
+            color: rgba(255, 255, 255, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .nav-item {
+            padding: 12px 25px;
+            cursor: pointer;
+            transition: var(--transition);
+            border-left: 2px solid transparent;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .nav-item:hover {
+            color: white;
+            background: rgba(0, 243, 255, 0.05);
+            border-left-color: rgba(0, 243, 255, 0.3);
+        }
+
+        .nav-item.active {
+            color: var(--neon-blue);
+            background: rgba(0, 243, 255, 0.1);
+            border-left-color: var(--neon-blue);
+            text-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
+        }
+
+        .nav-item.locked {
+            opacity: 0.3;
+            cursor: not-allowed;
+            filter: grayscale(1);
+        }
+
+        /* Main Content Area */
+        .main-content {
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .tab-view {
+            display: none;
+            flex: 1;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .tab-view.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Glass Panels */
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Chat View Implementation */
+        #neural-feed {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'Inter', sans-serif;
+            padding-right: 10px;
+            margin-bottom: 15px;
+        }
+
+        .msg {
+            margin-bottom: 12px;
+            padding: 15px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            max-width: 90%;
+            animation: slideIn 0.3s ease-out;
+            line-height: 1.5;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .msg-sys {
+            border-left: 3px solid #888;
+            color: #aaa;
+            font-family: 'Share Tech Mono';
+            font-size: 0.85rem;
+        }
+
+        .msg-ai {
+            border-left: 3px solid var(--neon-pink);
+            background: rgba(255, 0, 127, 0.05);
+        }
+
+        .msg-user {
+            border-left: 3px solid var(--neon-blue);
+            margin-left: auto;
+            background: rgba(0, 243, 255, 0.05);
+        }
+
+        /* 🖼️ Immersive Image Integration */
+        .msg img {
+            max-width: 100%;
+            display: block;
+            margin: 15px 0;
+            border-radius: 12px;
+            border: 2px solid rgba(0, 243, 255, 0.4);
+            box-shadow: 0 0 30px rgba(0, 243, 255, 0.15);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s ease;
+            cursor: zoom-in;
+        }
+
+        .msg img:hover {
+            transform: scale(1.03);
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 40px rgba(0, 243, 255, 0.3);
+        }
+
+        .msg img:active {
+            transform: scale(0.98);
+        }
+
+        .sender-tag {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.65rem;
+            margin-bottom: 6px;
+            display: block;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.7;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border);
+            padding: 10px 20px;
+            border-radius: 25px;
+            align-items: center;
+        }
+
+        .input-container input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            outline: none;
+            padding: 8px 0;
+        }
+
+        /* Sliders & Controls */
+        .control-row {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-family: 'Orbitron', sans-serif;
+            color: var(--neon-blue);
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--neon-blue);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--neon-blue);
+        }
+
+        /* Toggle Switches */
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: var(--neon-blue);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Modals */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(20px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+
+        .modal-box {
+            width: 100%;
+            max-width: 450px;
+            padding: 40px;
+            text-align: center;
+            border: 1px solid var(--neon-pink);
+            background: rgba(10, 5, 20, 0.9);
+            box-shadow: 0 0 50px rgba(255, 0, 127, 0.2);
+        }
+
+        .btn-action {
+            margin-top: 30px;
+            padding: 15px 40px;
+            background: rgba(255, 0, 127, 0.8);
+            border: 1px solid var(--neon-pink);
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            cursor: pointer;
+            width: 100%;
+            transition: 0.3s;
+            letter-spacing: 2px;
+        }
+
+        .btn-action:hover {
+            background: var(--neon-pink);
+            box-shadow: 0 0 20px var(--neon-pink);
+        }
+
+        .telemetry-mini {
+            display: flex;
+            gap: 3px;
+            align-items: flex-end;
+            height: 16px;
+            margin-left: 15px;
+        }
+
+        .t-bar {
+            width: 3px;
+            background: var(--neon-blue);
+            height: 100%;
+        }
+
+        /* Announcement board (Utils) */
+        .announce-board {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .announce-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 16px 18px;
+            border-left: 3px solid var(--neon-blue);
+        }
+
+        .announce-item.priority-warn {
+            border-left-color: #ffb020;
+            background: rgba(255, 176, 32, 0.06);
+        }
+
+        .announce-item.priority-ops {
+            border-left-color: var(--neon-pink);
+        }
+
+        .announce-meta {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.65rem;
+            opacity: 0.55;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .announce-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            color: var(--neon-blue);
+            margin: 0 0 8px 0;
+            letter-spacing: 1px;
+        }
+
+        .announce-body {
+            font-size: 0.88rem;
+            line-height: 1.55;
+            color: rgba(224, 224, 224, 0.92);
+            white-space: pre-wrap;
+        }
+
+        .announce-empty {
+            opacity: 0.45;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.8rem;
+            padding: 24px;
+            text-align: center;
+        }
+
+        /* Label editor (BRANDING tab) */
+        .brand-form {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            max-width: 900px;
+        }
+
+        .brand-form fieldset {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 18px;
+            margin: 0;
+            background: rgba(0, 0, 0, 0.25);
+        }
+
+        .brand-form legend {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.72rem;
+            letter-spacing: 0.12em;
+            padding: 0 8px;
+            color: var(--neon-blue);
+        }
+
+        .brand-form label {
+            display: block;
+            font-size: 0.62rem;
+            opacity: 0.55;
+            letter-spacing: 0.1em;
+            margin-bottom: 6px;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .brand-form input[type="text"],
+        .brand-form textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border);
+            color: #e0e0e0;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.82rem;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .brand-form textarea {
+            min-height: 64px;
+            resize: vertical;
+        }
+
+        .brand-form .brand-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        @media (max-width: 720px) {
+            .brand-form .brand-grid2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .brand-save-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        #brand-save-status {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.75rem;
+            opacity: 0.65;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Modals -->
+    <div id="auth-modal" class="modal">
+        <div class="glass-panel modal-box">
+            <h2 class="brand-site-name" style="font-family:Orbitron; letter-spacing:2px;">Lumax</h2>
+            <p class="title-tagline brand-slogan" style="margin:12px 0 0 0; text-align:center;">Your everything for life.</p>
+            <div style="width:50px; height:2px; background:var(--neon-blue); margin:20px auto;"></div>
+            <div id="auth-blurb-local">
+                <p id="brand-auth-blurb" style="font-size:0.85rem; line-height:1.6; opacity:0.8; margin: 25px 0;">
+                    Optional cloud tools (when enabled) may ask you to sign in with Google. You can continue without them for local-only use.
+                </p>
+            </div>
+            <div id="auth-password-row" style="display:none; text-align:left; margin-top:4px;">
+                <label style="font-size:0.65rem; opacity:0.55; letter-spacing:0.12em;">OPS CONSOLE PASSWORD</label>
+                <input type="password" id="webui-password" autocomplete="current-password"
+                    style="width:100%; margin-top:8px; padding:12px; background:rgba(0,0,0,0.45); border:1px solid var(--border); color:#e0e0e0; font-family:'Share Tech Mono',monospace; font-size:0.88rem; border-radius:4px;"
+                    placeholder="Set LUMAX_WEBUI_PASSWORD on the host" />
+                <p id="auth-error" style="color:#ff6b6b; font-size:0.78rem; margin-top:10px; display:none;"></p>
+            </div>
+            <button type="button" class="btn-action" id="auth-continue-btn" onclick="submitWebUiGate()">Continue</button>
+        </div>
+    </div>
+
+    <div id="consent-modal" class="modal" style="display:none">
+        <div class="glass-panel modal-box">
+            <h2 id="brand-consent-title" style="font-family:Orbitron; letter-spacing:2px; color:var(--neon-pink)">Privacy</h2>
+            <p id="brand-consent-body" style="font-size:0.85rem; line-height:1.6; opacity:0.8; margin: 25px 0;">
+                Session and environment data may be used to improve your companion’s behavior. Treat sensitive inputs accordingly. You can stop using the UI at any time.
+            </p>
+            <button type="button" class="btn-action" id="brand-consent-btn" onclick="finishConsent()">I understand</button>
+        </div>
+    </div>
+
+    <div class="header">
+        <div style="display:flex; align-items:center; gap:16px;">
+            <div>
+                <div class="title brand-site-name">Lumax</div>
+                <div class="title-tagline brand-slogan">Your everything for life.</div>
+            </div>
+            <div class="telemetry-mini" id="tele-bars"></div>
+        </div>
+        <div style="font-family:'Share Tech Mono'; font-size:0.75rem; opacity:0.5; letter-spacing:1px;">
+            <span id="sys-status-prefix">Godot · VR ·</span> <span id="sys-status" style="color:var(--neon-blue)">ready</span>
+        </div>
+    </div>
+
+    <div class="nexus-grid">
+        <div class="sidebar">
+
+            <div class="nav-group">
+                <div class="nav-label" id="nav-label-cognition">Cognition</div>
+                <div id="nav-sanctuary" class="nav-item active" data-tab="SANCTUARY" onclick="switchTab('SANCTUARY')">CHRONICLE</div>
+                <div id="nav-neural" class="nav-item locked" data-tab="NEURAL" onclick="switchTab('NEURAL')">ETHOS (PERSONA)</div>
+                <div id="nav-thoughts" class="nav-item locked" data-tab="THOUGHTS" onclick="switchTab('THOUGHTS')">LOGOS (COG)</div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label" id="nav-label-manifestation">Manifestation</div>
+                <div id="nav-imagine" class="nav-item locked" data-tab="IMAGINE" onclick="switchTab('IMAGINE')">DREAMSCAPE (ART)</div>
+                <div id="nav-vision" class="nav-item locked" data-tab="VISION" onclick="switchTab('VISION')">SPECTRAL VIEW</div>
+                <div id="nav-vessel" class="nav-item locked" data-tab="VESSEL" onclick="switchTab('VESSEL')">VESSEL RIG</div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label" id="nav-label-agency">Agency</div>
+                <div id="nav-agency" class="nav-item locked" data-tab="AGENCY" onclick="switchTab('AGENCY')">AUTONOMOUS</div>
+                <div id="nav-social" class="nav-item locked" data-tab="SOCIAL" onclick="switchTab('SOCIAL')">MULTIVERSE</div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label" id="nav-label-laboratory">Laboratory</div>
+                <div id="nav-cowork" class="nav-item locked" data-tab="COWORK" onclick="switchTab('COWORK')">RATATOSK (CODE)</div>
+                <div id="nav-nucleus" class="nav-item locked" data-tab="NUCLEUS" onclick="switchTab('NUCLEUS')">NUCLEUS (DEBUG)</div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label" id="nav-label-utilities">Utilities</div>
+                <div id="nav-branding" class="nav-item locked" data-tab="BRANDING" onclick="switchTab('BRANDING')">LABEL EDITOR</div>
+                <div id="nav-utils" class="nav-item locked" data-tab="UTILS" onclick="switchTab('UTILS')">ANNOUNCE BOARD</div>
+            </div>
+
+            <div id="footer-stack-wrap"
+                style="margin-top: auto; padding: 20px; font-size: 0.65rem; opacity: 0.4; font-family: 'Share Tech Mono'; line-height:1.8; border-top: 1px solid var(--border);">
+                <span id="footer-stack">Stack: local + optional cloud</span><br>
+                AUTH: <span id="auth-status">PENDING</span><br>
+                VRAM: <span id="vram-stat">-- MB</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+
+            <!-- Live Telemetry Overlay (Ghostly) -->
+            <div
+                style="position:absolute; top:20px; right:20px; display:flex; gap:20px; font-family:'Share Tech Mono'; font-size:0.7rem; z-index:5; pointer-events:none; opacity:0.6;">
+                <div id="ghost-upload">UPLOAD: <span style="color:var(--neon-blue)">12.4 Kbps</span></div>
+                <div id="ghost-sync">SYNC: <span style="color:var(--neon-green)">STABLE</span></div>
+            </div>
+
+            <!-- Tab: SANCTUARY (Chat) -->
+            <div id="view-SANCTUARY" class="tab-view active">
+                <div id="neural-feed">
+                    <div class="msg msg-sys"><span class="sender-tag">SYSTEM</span> Ready when you are.</div>
+                </div>
+                <div class="input-container">
+                    <button id="mic-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; padding:0 10px;">🎙️</button>
+                    <input type="text" id="chat-input" placeholder="Transmit thoughts to Jen..." autocomplete="off">
+                    <div id="ptt-label" style="font-family:'Share Tech Mono'; font-size:0.7rem; color:var(--neon-blue);">[PTT_READY]</div>
+                </div>
+            </div>
+
+            <!-- Tab: NEURAL (Ethos/Personality) -->
+            <div id="view-NEURAL" class="tab-view">
+                <h3 style="font-family:Orbitron; margin-top:0;">SOUL CONSTITUTION</h3>
+                <div class="glass-card">
+                    <div class="control-row">
+                        <div class="slider-group">
+                            <div class="slider-header"><span>INTRINSIC_INTIMACY</span><span id="val-intimacy">0.5</span>
+                            </div>
+                            <input type="range" min="0" max="1" step="0.01" value="0.5" id="slider-intimacy"
+                                oninput="updateKnob('intimacy', this.value)">
+                        </div>
+                        <div class="slider-group">
+                            <div class="slider-header"><span>NEURAL_CURIOSITY</span><span id="val-curiosity">0.5</span>
+                            </div>
+                            <input type="range" min="0" max="1" step="0.01" value="0.5" id="slider-curiosity"
+                                oninput="updateKnob('curiosity', this.value)">
+                        </div>
+                        <div class="slider-group">
+                            <div class="slider-header"><span>SPIRITUAL_NOURISHMENT</span><span
+                                    id="val-nourishment">0.5</span></div>
+                            <input type="range" min="0" max="1" step="0.01" value="0.5" id="slider-nourishment"
+                                oninput="updateKnob('nourishment', this.value)">
+                        </div>
+                    </div>
+                </div>
+                <div class="glass-card">
+                    <h4 style="font-family:Orbitron; font-size:0.8rem; color:var(--neon-pink); margin-top:0;">PERSONA
+                        ARCHETYPE</h4>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                        <button class="btn-action" style="margin-top:0; padding:10px;"
+                            onclick="setArchetype('HEALER')">THE HEALER</button>
+                        <button class="btn-action" style="margin-top:0; padding:10px;"
+                            onclick="setArchetype('SAGE')">THE SAGE</button>
+                        <button class="btn-action" style="margin-top:0; padding:10px;"
+                            onclick="setArchetype('PIONEER')">THE PIONEER</button>
+                        <button class="btn-action" style="margin-top:0; padding:10px;"
+                            onclick="setArchetype('MUSE')">THE MUSE</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: AGENCY (Autonomous) -->
+            <div id="view-AGENCY" class="tab-view">
+                <h3 style="font-family:Orbitron; margin-top:0;">KINETIC AGENCY</h3>
+                <div class="glass-card">
+                    <div class="toggle-row">
+                        <span>AUTONOMOUS_LOCOMOTION</span>
+                        <label class="switch"><input type="checkbox" id="check-walk" checked
+                                onchange="toggleAgency('walking', this.checked)"><span class="slider"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>PROACTIVE_ENGAGEMENT</span>
+                        <label class="switch"><input type="checkbox" id="check-proactive"
+                                onchange="toggleAgency('proactive', this.checked)"><span class="slider"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>ENVIRONMENTAL_AWARENESS</span>
+                        <label class="switch"><input type="checkbox" id="check-env" checked
+                                onchange="toggleAgency('env', this.checked)"><span class="slider"></span></label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: NUCLEUS (Debug) -->
+            <div id="view-NUCLEUS" class="tab-view">
+                <h3 style="font-family:Orbitron; margin-top:0;">NUCLEUS_DIAGNOSTICS // SENTRY_MATRIX</h3>
+
+                <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; margin-bottom:5px;">
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">VRAM</div>
+                        <div id="sent-vram" style="color:var(--neon-blue); font-size:1rem;">7.2GB</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">SYNC</div>
+                        <div id="sent-sync" style="color:var(--neon-green); font-size:1rem;">98.4%</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">CPU_MS</div>
+                        <div id="sent-cpu" style="color:var(--neon-blue); font-size:1rem;">12ms</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">NET_LAT</div>
+                        <div id="sent-lat" style="color:var(--neon-pink); font-size:1rem;">24ms</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">RESONANCE</div>
+                        <div id="sent-res" style="color:var(--neon-blue); font-size:1rem;">HIGH</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">DISK_I/O</div>
+                        <div id="sent-disk" style="color:var(--neon-blue); font-size:1rem;">0.2MB/s</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">THERMALS</div>
+                        <div id="sent-temp" style="color:var(--neon-pink); font-size:1rem;">42°C</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">UP_FLUX</div>
+                        <div id="sent-up" style="color:var(--neon-blue); font-size:1rem;">12Kbps</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">MIND_DEPTH</div>
+                        <div id="sent-depth" style="color:var(--neon-green); font-size:1rem;">7.4km</div>
+                    </div>
+                    <div class="glass-card" style="padding:10px; margin:0; text-align:center;">
+                        <div style="font-size:0.6rem; opacity:0.5;">SYS_ERR</div>
+                        <div id="sent-err" style="color:var(--neon-pink); font-size:1rem;">0</div>
+                    </div>
+                </div>
+
+                <div class="glass-card"
+                    style="flex:1; font-family:'Share Tech Mono'; font-size:0.8rem; overflow-y:auto; color:var(--neon-green);">
+                    <div id="debug-log">
+                        [00:00:00] Initializing diagnostic probe...<br>
+                        [00:00:01] Lumax Engine heartbeat: 24ms<br>
+                        [00:00:01] VRAM use 7.2GB / 12GB<br>
+                    </div>
+                </div>
+                <div class="glass-card"
+                    style="margin-top:5px; padding:10px; height:80px; display:flex; flex-direction:column; gap:5px;">
+                    <div style="font-size:0.6rem; opacity:0.5; font-family:Orbitron;">SESSION_RESONANCE_HISTORY</div>
+                    <canvas id="nucleus-chart" style="flex:1; width:100%;"></canvas>
+                </div>
+                <button class="btn-action" style="background:rgba(0, 243, 255, 0.2); border-color:var(--neon-blue);"
+                    onclick="triggerDiagnostic()">RUN DEEP PROBE</button>
+            </div>
+
+            <!-- Tab: BRANDING — labels & copy (saved to webui_branding.json) -->
+            <div id="view-BRANDING" class="tab-view">
+                <h3 style="font-family:Orbitron; margin-top:0; letter-spacing:1px;">Label editor</h3>
+                <p style="font-size:0.75rem; opacity:0.55; margin:0 0 16px 0; max-width: 62ch;">
+                    Edit shared and browser-only copy. Saved to
+                    <span style="color:var(--neon-blue); font-family:'Share Tech Mono',monospace;">lumax_ui_config.json</span>
+                    (<code style="opacity:0.85;">global</code> + <code style="opacity:0.85;">web</code>). Other clients use the same file:
+                    <code style="opacity:0.85;">godot_vr</code> (VR),
+                    <code style="opacity:0.85;">mobile</code> (future APK),
+                    <code style="opacity:0.85;">desktop</code> (future desktop shell) — all via <code style="opacity:0.85;">GET /api/ui_config</code>. Requires sign-in.
+                </p>
+                <div class="glass-card brand-form" id="brand-form-root">
+                    <fieldset>
+                        <legend>Site &amp; browser</legend>
+                        <div class="brand-grid2">
+                            <div><label for="bf-site_name">Site name</label><input type="text" id="bf-site_name" autocomplete="off"></div>
+                            <div><label for="bf-manifest_short_name">Short name (PWA)</label><input type="text" id="bf-manifest_short_name" autocomplete="off"></div>
+                        </div>
+                        <div style="margin-top:12px;"><label for="bf-page_title">Page title (tab)</label><input type="text" id="bf-page_title" autocomplete="off"></div>
+                        <div style="margin-top:12px;"><label for="bf-slogan">Slogan / tagline</label><input type="text" id="bf-slogan" autocomplete="off"></div>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Login &amp; consent</legend>
+                        <div><label for="bf-auth_blurb">Local login blurb (no password gate)</label><textarea id="bf-auth_blurb" rows="3"></textarea></div>
+                        <div class="brand-grid2" style="margin-top:12px;">
+                            <div><label for="bf-auth_continue_button">Continue button</label><input type="text" id="bf-auth_continue_button"></div>
+                            <div><label for="bf-consent_button">Consent button</label><input type="text" id="bf-consent_button"></div>
+                        </div>
+                        <div style="margin-top:12px;"><label for="bf-consent_title">Consent title</label><input type="text" id="bf-consent_title"></div>
+                        <div style="margin-top:12px;"><label for="bf-consent_body">Consent body</label><textarea id="bf-consent_body" rows="3"></textarea></div>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Header &amp; footer</legend>
+                        <div class="brand-grid2">
+                            <div><label for="bf-header_status_prefix">Status prefix (before “ready”)</label><input type="text" id="bf-header_status_prefix"></div>
+                            <div><label for="bf-footer_stack">Footer stack line</label><input type="text" id="bf-footer_stack"></div>
+                        </div>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Sidebar — group labels</legend>
+                        <div class="brand-grid2">
+                            <div><label for="bf-ng-cognition">Cognition</label><input type="text" id="bf-ng-cognition"></div>
+                            <div><label for="bf-ng-manifestation">Manifestation</label><input type="text" id="bf-ng-manifestation"></div>
+                            <div><label for="bf-ng-agency">Agency</label><input type="text" id="bf-ng-agency"></div>
+                            <div><label for="bf-ng-laboratory">Laboratory</label><input type="text" id="bf-ng-laboratory"></div>
+                            <div><label for="bf-ng-utilities">Utilities</label><input type="text" id="bf-ng-utilities"></div>
+                        </div>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Sidebar — menu labels</legend>
+                        <div class="brand-grid2">
+                            <div><label for="bf-nt-SANCTUARY">Chronicle</label><input type="text" id="bf-nt-SANCTUARY"></div>
+                            <div><label for="bf-nt-NEURAL">Ethos</label><input type="text" id="bf-nt-NEURAL"></div>
+                            <div><label for="bf-nt-THOUGHTS">Logos</label><input type="text" id="bf-nt-THOUGHTS"></div>
+                            <div><label for="bf-nt-IMAGINE">Dreamscape</label><input type="text" id="bf-nt-IMAGINE"></div>
+                            <div><label for="bf-nt-VISION">Spectral</label><input type="text" id="bf-nt-VISION"></div>
+                            <div><label for="bf-nt-VESSEL">Vessel</label><input type="text" id="bf-nt-VESSEL"></div>
+                            <div><label for="bf-nt-AGENCY">Autonomous</label><input type="text" id="bf-nt-AGENCY"></div>
+                            <div><label for="bf-nt-SOCIAL">Multiverse</label><input type="text" id="bf-nt-SOCIAL"></div>
+                            <div><label for="bf-nt-COWORK">Ratatosk</label><input type="text" id="bf-nt-COWORK"></div>
+                            <div><label for="bf-nt-NUCLEUS">Nucleus</label><input type="text" id="bf-nt-NUCLEUS"></div>
+                            <div><label for="bf-nt-UTILS">Announce board</label><input type="text" id="bf-nt-UTILS"></div>
+                            <div><label for="bf-nt-BRANDING">Label editor</label><input type="text" id="bf-nt-BRANDING"></div>
+                        </div>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Chat &amp; announcements tab</legend>
+                        <div><label for="bf-chat_placeholder">Chat placeholder</label><input type="text" id="bf-chat_placeholder"></div>
+                        <div style="margin-top:12px;"><label for="bf-utils_title">Announcements heading</label><input type="text" id="bf-utils_title"></div>
+                        <div style="margin-top:12px;"><label for="bf-utils_blurb">Announcements intro</label><textarea id="bf-utils_blurb" rows="2"></textarea></div>
+                        <div style="margin-top:12px;"><label for="bf-ready_message">“Connected” system message</label><input type="text" id="bf-ready_message"></div>
+                    </fieldset>
+                    <div class="brand-save-row">
+                        <button type="button" class="btn-action" style="width:auto; padding:12px 28px; margin-top:0;" onclick="saveBrandingForm()">Save labels</button>
+                        <span id="brand-save-status"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: UTILS — announcement board -->
+            <div id="view-UTILS" class="tab-view">
+                <h3 id="utils-title" style="font-family:Orbitron; margin-top:0; letter-spacing:1px;">Announcements</h3>
+                <p id="utils-blurb" style="font-size:0.75rem; opacity:0.55; margin:0 0 16px 0; max-width: 52ch;">
+                    Operational notices and reminders. Content is served from <span
+                        style="color:var(--neon-blue); font-family:'Share Tech Mono',monospace;">announcements.json</span>
+                    next to the Web UI (editable on disk).
+                </p>
+                <div id="announce-board" class="announce-board">
+                    <div class="announce-empty">Loading bulletins…</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let isAuthorized = false;
+        let brandingState = {};
+
+        function applyBranding(b) {
+            if (!b || typeof b !== 'object') return;
+            brandingState = b;
+            window.__lumaxReadyMessage = b.ready_message || 'Connected. Lumax Web UI is ready.';
+            if (b.page_title) {
+                document.title = b.page_title;
+            }
+            document.querySelectorAll('.brand-site-name').forEach((el) => {
+                el.textContent = b.site_name || '';
+            });
+            document.querySelectorAll('.brand-slogan').forEach((el) => {
+                el.textContent = b.slogan || '';
+            });
+            const ab = document.getElementById('brand-auth-blurb');
+            if (ab) {
+                ab.textContent = b.auth_blurb || '';
+            }
+            const acb = document.getElementById('auth-continue-btn');
+            if (acb) {
+                acb.textContent = b.auth_continue_button || 'Continue';
+            }
+            const ct = document.getElementById('brand-consent-title');
+            if (ct) {
+                ct.textContent = b.consent_title || '';
+            }
+            const cb = document.getElementById('brand-consent-body');
+            if (cb) {
+                cb.textContent = b.consent_body || '';
+            }
+            const cbtn = document.getElementById('brand-consent-btn');
+            if (cbtn) {
+                cbtn.textContent = b.consent_button || 'I understand';
+            }
+            const sp = document.getElementById('sys-status-prefix');
+            if (sp) {
+                sp.textContent = b.header_status_prefix || '';
+            }
+            const fs = document.getElementById('footer-stack');
+            if (fs) {
+                fs.textContent = b.footer_stack || '';
+            }
+            const ng = b.nav_groups || {};
+            const glMap = {
+                cognition: 'nav-label-cognition',
+                manifestation: 'nav-label-manifestation',
+                agency: 'nav-label-agency',
+                laboratory: 'nav-label-laboratory',
+                utilities: 'nav-label-utilities',
+            };
+            Object.keys(glMap).forEach((k) => {
+                const el = document.getElementById(glMap[k]);
+                if (el && ng[k] != null) {
+                    el.textContent = ng[k];
+                }
+            });
+            const nt = b.nav_tabs || {};
+            Object.keys(nt).forEach((tab) => {
+                const el = document.querySelector('.nav-item[data-tab="' + tab + '"]');
+                if (el) {
+                    el.textContent = nt[tab];
+                }
+            });
+            const ut = document.getElementById('utils-title');
+            if (ut) {
+                ut.textContent = b.utils_title || '';
+            }
+            const ub = document.getElementById('utils-blurb');
+            if (ub) {
+                ub.textContent = b.utils_blurb || '';
+            }
+            const ci = document.getElementById('chat-input');
+            if (ci) {
+                ci.placeholder = b.chat_placeholder || '';
+            }
+        }
+
+        function populateBrandingForm() {
+            const b = brandingState;
+            if (!b || !b.nav_groups) {
+                return;
+            }
+            const set = (id, v) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.value = v != null ? v : '';
+                }
+            };
+            set('bf-site_name', b.site_name);
+            set('bf-page_title', b.page_title);
+            set('bf-slogan', b.slogan);
+            set('bf-manifest_short_name', b.manifest_short_name);
+            set('bf-auth_blurb', b.auth_blurb);
+            set('bf-auth_continue_button', b.auth_continue_button);
+            set('bf-consent_title', b.consent_title);
+            set('bf-consent_body', b.consent_body);
+            set('bf-consent_button', b.consent_button);
+            set('bf-header_status_prefix', b.header_status_prefix);
+            set('bf-footer_stack', b.footer_stack);
+            const ng = b.nav_groups || {};
+            set('bf-ng-cognition', ng.cognition);
+            set('bf-ng-manifestation', ng.manifestation);
+            set('bf-ng-agency', ng.agency);
+            set('bf-ng-laboratory', ng.laboratory);
+            set('bf-ng-utilities', ng.utilities);
+            const nt = b.nav_tabs || {};
+            Object.keys(nt).forEach((t) => {
+                set('bf-nt-' + t, nt[t]);
+            });
+            set('bf-chat_placeholder', b.chat_placeholder);
+            set('bf-utils_title', b.utils_title);
+            set('bf-utils_blurb', b.utils_blurb);
+            set('bf-ready_message', b.ready_message);
+        }
+
+        async function loadBranding() {
+            try {
+                const b = await fetch('/api/branding', { credentials: 'same-origin' }).then((r) => r.json());
+                applyBranding(b);
+                populateBrandingForm();
+            } catch (e) {
+                console.warn('Branding load failed:', e);
+            }
+        }
+
+        async function saveBrandingForm() {
+            const status = document.getElementById('brand-save-status');
+            if (status) {
+                status.textContent = '';
+                status.style.color = '';
+            }
+            const gv = (id) => {
+                const el = document.getElementById(id);
+                return el ? el.value : '';
+            };
+            const patch = {
+                site_name: gv('bf-site_name'),
+                page_title: gv('bf-page_title'),
+                slogan: gv('bf-slogan'),
+                manifest_short_name: gv('bf-manifest_short_name'),
+                auth_blurb: gv('bf-auth_blurb'),
+                auth_continue_button: gv('bf-auth_continue_button'),
+                consent_title: gv('bf-consent_title'),
+                consent_body: gv('bf-consent_body'),
+                consent_button: gv('bf-consent_button'),
+                header_status_prefix: gv('bf-header_status_prefix'),
+                footer_stack: gv('bf-footer_stack'),
+                nav_groups: {
+                    cognition: gv('bf-ng-cognition'),
+                    manifestation: gv('bf-ng-manifestation'),
+                    agency: gv('bf-ng-agency'),
+                    laboratory: gv('bf-ng-laboratory'),
+                    utilities: gv('bf-ng-utilities'),
+                },
+                nav_tabs: {},
+                chat_placeholder: gv('bf-chat_placeholder'),
+                utils_title: gv('bf-utils_title'),
+                utils_blurb: gv('bf-utils_blurb'),
+                ready_message: gv('bf-ready_message'),
+            };
+            const tabKeys = ['SANCTUARY', 'NEURAL', 'THOUGHTS', 'IMAGINE', 'VISION', 'VESSEL', 'AGENCY', 'SOCIAL', 'COWORK', 'NUCLEUS', 'UTILS', 'BRANDING'];
+            tabKeys.forEach((t) => {
+                patch.nav_tabs[t] = gv('bf-nt-' + t);
+            });
+            try {
+                const resp = await fetch('/api/branding', {
+                    method: 'PUT',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(patch),
+                });
+                if (resp.status === 401) {
+                    if (status) {
+                        status.textContent = 'Sign in required.';
+                        status.style.color = '#ff6b6b';
+                    }
+                    return;
+                }
+                if (!resp.ok) {
+                    if (status) {
+                        status.textContent = 'Save failed.';
+                        status.style.color = '#ff6b6b';
+                    }
+                    return;
+                }
+                const merged = await resp.json();
+                applyBranding(merged);
+                populateBrandingForm();
+                if (status) {
+                    status.textContent = 'Saved.';
+                    status.style.color = 'var(--neon-green)';
+                    setTimeout(() => {
+                        status.textContent = '';
+                    }, 4000);
+                }
+            } catch (e) {
+                if (status) {
+                    status.textContent = 'Network error.';
+                    status.style.color = '#ff6b6b';
+                }
+            }
+        }
+
+        async function callApi(endpoint, method = 'GET', body = null) {
+            try {
+                const options = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
+                if (body) options.body = JSON.stringify(body);
+                const resp = await fetch('/api/' + endpoint, options);
+                if (resp.status === 401) {
+                    console.warn('API unauthorized (sign in):', endpoint);
+                    return null;
+                }
+                return await resp.json();
+            } catch (err) {
+                console.error("API Error (" + endpoint + "):", err);
+                return null;
+            }
+        }
+
+        function applyAuthorizedUi() {
+            isAuthorized = true;
+            document.getElementById('auth-status').innerText = 'AUTHORIZED';
+            document.getElementById('auth-status').style.color = 'var(--neon-blue)';
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('locked'));
+            startHeartbeats();
+        }
+
+        function finishAuth() {
+            document.getElementById('auth-modal').style.display = 'none';
+            applyAuthorizedUi();
+            const readyMsg = window.__lumaxReadyMessage || 'Connected. Lumax Web UI is ready.';
+            if (localStorage.getItem('lumax_consent_done') === '1') {
+                document.getElementById('consent-modal').style.display = 'none';
+                addMessage('SYSTEM', readyMsg);
+            } else {
+                document.getElementById('consent-modal').style.display = 'flex';
+            }
+        }
+
+        async function submitWebUiGate() {
+            const errEl = document.getElementById('auth-error');
+            if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+            let st = {};
+            try {
+                st = await fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => r.json());
+            } catch (e) {
+                if (errEl) { errEl.textContent = 'Could not reach auth service.'; errEl.style.display = 'block'; }
+                return;
+            }
+            if (!st.auth_required) {
+                finishAuth();
+                return;
+            }
+            const pwEl = document.getElementById('webui-password');
+            const pw = pwEl ? pwEl.value : '';
+            const login = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ password: pw }),
+            });
+            if (!login.ok) {
+                if (errEl) { errEl.textContent = 'Invalid password.'; errEl.style.display = 'block'; }
+                return;
+            }
+            finishAuth();
+        }
+
+        async function bootstrapWebUi() {
+            let st = {};
+            try {
+                st = await fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => r.json());
+            } catch (e) {
+                return;
+            }
+            const need = st.auth_required === true;
+            const authed = st.authenticated === true;
+            const blurb = document.getElementById('auth-blurb-local');
+            const pwRow = document.getElementById('auth-password-row');
+            if (blurb) blurb.style.display = need ? 'none' : 'block';
+            if (pwRow) pwRow.style.display = need ? 'block' : 'none';
+            if (!need) {
+                document.getElementById('auth-modal').style.display = 'flex';
+                return;
+            }
+            if (authed) {
+                document.getElementById('auth-modal').style.display = 'none';
+                applyAuthorizedUi();
+                if (localStorage.getItem('lumax_consent_done') === '1') {
+                    document.getElementById('consent-modal').style.display = 'none';
+                    addMessage('SYSTEM', window.__lumaxReadyMessage || 'Connected. Lumax Web UI is ready.');
+                } else {
+                    document.getElementById('consent-modal').style.display = 'flex';
+                }
+                return;
+            }
+            document.getElementById('auth-modal').style.display = 'flex';
+        }
+
+        function finishConsent() {
+            localStorage.setItem('lumax_consent_done', '1');
+            document.getElementById('consent-modal').style.display = 'none';
+            addMessage('SYSTEM', window.__lumaxReadyMessage || 'Connected. Lumax Web UI is ready.');
+        }
+
+        function switchTab(tabId) {
+            if (!isAuthorized && tabId !== 'SANCTUARY') return;
+
+            // Update Nav
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            const navItem = document.querySelector('.nav-item[data-tab="' + tabId + '"]');
+            if (navItem) {
+                navItem.classList.add('active');
+            }
+
+            // Update Views
+            document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
+            const targetView = document.getElementById('view-' + tabId);
+            if (targetView) {
+                targetView.classList.add('active');
+            }
+
+            if (tabId === 'UTILS') {
+                loadAnnouncements();
+            }
+            if (tabId === 'BRANDING') {
+                populateBrandingForm();
+            }
+        }
+
+        async function loadAnnouncements() {
+            const board = document.getElementById('announce-board');
+            if (!board) return;
+            board.innerHTML = '<div class="announce-empty">Loading bulletins…</div>';
+            const data = await callApi('announcements', 'GET');
+            const items = (data && data.items) ? data.items : [];
+            if (!items.length) {
+                board.innerHTML = '<div class="announce-empty">No bulletins. Add entries in announcements.json.</div>';
+                return;
+            }
+            board.innerHTML = '';
+            items.forEach((row) => {
+                const pri = (row.priority || 'info').toLowerCase();
+                let cls = 'announce-item';
+                if (pri === 'warn' || pri === 'warning') cls += ' priority-warn';
+                if (pri === 'ops' || pri === 'critical') cls += ' priority-ops';
+                const el = document.createElement('article');
+                el.className = cls;
+                const meta = document.createElement('div');
+                meta.className = 'announce-meta';
+                meta.textContent = (row.date || '—') + (row.tag ? ' · ' + row.tag : '');
+                const h = document.createElement('h4');
+                h.className = 'announce-title';
+                h.textContent = row.title || 'Notice';
+                const body = document.createElement('div');
+                body.className = 'announce-body';
+                body.textContent = row.body || '';
+                el.appendChild(meta);
+                el.appendChild(h);
+                el.appendChild(body);
+                board.appendChild(el);
+            });
+        }
+
+        function addMessage(who, text) {
+            const feed = document.getElementById('neural-feed');
+            const msg = document.createElement('div');
+            msg.className = 'msg ' + (who === 'SYSTEM' ? 'msg-sys' : (who.startsWith('YOU') || who === 'USER' ? 'msg-user' : 'msg-ai'));
+
+            const tag = document.createElement('span');
+            tag.className = 'sender-tag';
+            tag.innerText = who;
+
+            msg.appendChild(tag);
+            
+            // Handle [img] tags from backend
+            let cleanText = text.replace(/\[img=(.*?)\](.*?)\[\/img\]/g, '<img src="$2" style="max-width:300px">');
+            msg.innerHTML += cleanText;
+
+            feed.appendChild(msg);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        async function sendChat(text) {
+            const data = await callApi('chat', 'POST', { input: text, vessel: 'WEB_BRIDGE' });
+            if (data && data.response) {
+                addMessage('LUMAX', data.response);
+                if (data.audio) {
+                    playAudio(data.audio);
+                }
+            }
+        }
+
+        function playAudio(base64) {
+            const audio = new Audio("data:audio/wav;base64," + base64);
+            audio.play();
+        }
+
+        async function updateKnob(knob, val) {
+            document.getElementById('val-' + knob).innerText = val;
+            await callApi('update_soul', 'POST', { [knob]: parseFloat(val) });
+        }
+
+        function toggleAgency(type, active) {
+            addMessage('SYSTEM', `AGENCY_${type.toUpperCase()}: ${active ? 'ENABLED' : 'DISABLED'}`);
+            // Logic handled by Soul backend on compagent calls
+        }
+
+        function setArchetype(type) {
+            addMessage('SYSTEM', `PRIMING ARCHETYPE: ${type}`);
+            // Logic handled by Soul backend
+        }
+
+        function triggerDiagnostic() {
+            const log = document.getElementById('debug-log');
+            const now = new Date().toLocaleTimeString();
+            log.innerHTML += `[${now}] Triggering deep diagnostic...<br>`;
+            log.innerHTML += `[${now}] Scanning neural weights... OK<br>`;
+            updateNucleusChart(Math.random() * 100);
+        }
+
+        async function startHeartbeats() {
+            setInterval(async () => {
+                const vitals = await callApi('vitals');
+                if (vitals) {
+                    if (document.getElementById('sent-vram')) document.getElementById('sent-vram').innerText = vitals.VRAM_BUFF || "7.2GB";
+                    if (document.getElementById('sent-sync')) document.getElementById('sent-sync').innerText = vitals.CORE_SYNC || "98%";
+                    if (document.getElementById('vram-stat')) document.getElementById('vram-stat').innerText = vitals.VRAM_BUFF || "-- MB";
+                }
+            }, 5000);
+        }
+
+        // Nucleus History Chart
+        const chartCanvas = document.getElementById('nucleus-chart');
+        const ctx = chartCanvas ? chartCanvas.getContext('2d') : null;
+        let history = new Array(50).fill(0);
+
+        function updateNucleusChart(val) {
+            if (!ctx) return;
+            history.push(val);
+            if (history.length > 50) history.shift();
+
+            ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            const step = chartCanvas.width / 50;
+            for (let i = 0; i < 50; i++) {
+                const x = i * step;
+                const y = chartCanvas.height - (history[i] / 100 * chartCanvas.height);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Subtle glow
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#00f3ff';
+        }
+
+        // Interaction bridge
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const input = document.getElementById('chat-input');
+                const text = input.value.trim();
+                if (text) {
+                    addMessage('YOU', text);
+                    sendChat(text);
+                    input.value = '';
+                }
+            }
+        });
+
+        // Telemetry bars animation
+        const tele = document.getElementById('tele-bars');
+        for (let i = 0; i < 15; i++) {
+            const bar = document.createElement('div');
+            bar.className = 't-bar';
+            tele.appendChild(bar);
+        }
+        setInterval(() => {
+            document.querySelectorAll('.t-bar').forEach(b => {
+                b.style.height = (20 + Math.random() * 80) + '%';
+                b.style.opacity = 0.3 + Math.random() * 0.7;
+            });
+        }, 120);
+
+        const pwInput = document.getElementById('webui-password');
+        if (pwInput) {
+            pwInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') submitWebUiGate();
+            });
+        }
+        (async function initWebUi() {
+            await loadBranding();
+            bootstrapWebUi();
+        })();
+
+    </script>
+</body>
+
+</html>

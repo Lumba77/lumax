@@ -1,0 +1,118 @@
+import os
+import logging
+from dataclasses import dataclass, asdict
+from typing import List
+
+import httpx
+
+
+logger = logging.getLogger("Preflight")
+
+
+@dataclass
+class CheckResult:
+    name: str
+    ok: bool
+    detail: str
+    critical: bool = False
+    healed: bool = False
+
+
+def _service_ok(url: str, timeout: float = 3.0) -> bool:
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            r = client.get(url)
+            return r.status_code == 200
+    except Exception:
+        return False
+
+
+def run_preflight(level: str = "light", autoheal: bool = True) -> List[CheckResult]:
+    """
+    Lightweight backend-side preflight for sentry loops.
+    Levels:
+      - light: critical local checks only
+      - standard: + container service checks
+      - deep: + soul bridge localhost probe
+    """
+    level = (level or "light").strip().lower()
+    if level not in {"light", "standard", "deep"}:
+        level = "light"
+
+    results: List[CheckResult] = []
+
+    # Critical baseline checks
+    app_root = os.getenv("LUMAX_APP_ROOT", "/app")
+    godot_dir = os.path.join(app_root, "Godot")
+    results.append(
+        CheckResult(
+            name="project_root",
+            ok=os.path.isdir(app_root),
+            detail=f"root={app_root}",
+            critical=True,
+        )
+    )
+    results.append(
+        CheckResult(
+            name="godot_dir",
+            ok=os.path.isdir(godot_dir),
+            detail=f"godot={godot_dir}",
+            critical=True,
+        )
+    )
+
+    if level in {"standard", "deep"}:
+        # Services inside compose network
+        services = {
+            "soul_health": "http://lumax_soul:8000/health",
+            "ears_health": "http://lumax_body:8001/health",
+            "mouth_health": "http://lumax_body:8002/health",
+            "turbo_health": "http://lumax_turbochat:8005/health",
+        }
+        for name, url in services.items():
+            ok = _service_ok(url)
+            results.append(
+                CheckResult(
+                    name=name,
+                    ok=ok,
+                    detail=url,
+                    critical=(name == "soul_health"),
+                )
+            )
+
+    if level == "deep":
+        # On device/host side this would be 127.0.0.1:8000; inside container this may be false by design.
+        # Keep non-critical to avoid false red in compose networking.
+        bridge_url = os.getenv("LUMAX_PREFLIGHT_BRIDGE_URL", "http://127.0.0.1:8000/health")
+        bridge_ok = _service_ok(bridge_url, timeout=2.0)
+        results.append(
+            CheckResult(
+                name="bridge_loopback_probe",
+                ok=bridge_ok,
+                detail=bridge_url,
+                critical=False,
+            )
+        )
+
+    # Simple heal hook placeholder: currently network-only checks, so heal happens in sentry bridge code.
+    if autoheal:
+        # Reserved for future expansion (docker restart hooks, targeted restarts, etc.)
+        pass
+
+    fails = [r for r in results if r.critical and not r.ok]
+    logger.debug(
+        "Preflight[%s]: critical_failures=%d total=%d",
+        level,
+        len(fails),
+        len(results),
+    )
+    return results
+
+
+def summarize(results: List[CheckResult]) -> str:
+    return ", ".join([f"{r.name}={'OK' if r.ok else 'FAIL'}" for r in results])
+
+
+def to_dict(results: List[CheckResult]):
+    return [asdict(r) for r in results]
+

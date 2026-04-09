@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "description": "Shepherd watchdog safety policy for sentry agency.",
+  "inspect": {
+    "containers": true,
+    "logs": true
+  },
+  "actions": {
+    "allow_docker_compose_up": true,
+    "allow_bridge_reverse": true,
+    "allow_service_restart": false,
+    "allow_preflight_level_switch": true,
+    "allow_extended_test_probe": true,
+    "allow_architect_escalation": true
+  },
+  "approval_required_actions": [
+    "docker_compose_up",
+    "restart_service_soul",
+    "restart_service_body",
+    "restart_service_turbo",
+    "rebuild_service_soul",
+    "request_architecture_plan"
+  ],
+  "notes": [
+    "Set allow_service_restart=true only when restart loops are controlled.",
+    "Keep approval_required_actions strict for safety while still allowing inspection freedom.",
+    "rebuild_service_soul requires approval unless autonomous_sentry runs it with reason=gpu-guard and LUMAX_SENTRY_GPU_GUARD_ALLOW_AUTO_REMEDIATE=true."
+  ]
+}
+

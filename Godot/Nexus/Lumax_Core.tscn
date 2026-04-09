@@ -1,13 +1,15 @@
-[gd_scene load_steps=12 format=3 uid="uid://ctdxgg62vs8ub"]
+[gd_scene format=3 uid="uid://ctdxgg62vs8ub"]
 
-[ext_resource type="Script" path="res://Nexus/SkeletonKey.gd" id="1"]
-[ext_resource type="Script" path="res://Soul/Synapse.gd" id="2"]
+[ext_resource type="Script" uid="uid://dmqjsxkvj2dwk" path="res://Nexus/SkeletonKey.gd" id="1"]
+[ext_resource type="Script" uid="uid://bfom05g1vowaw" path="res://Soul/Synapse.gd" id="2"]
 [ext_resource type="PackedScene" uid="uid://nnse6wsxsjeo" path="res://Mind/Lumax_Display.tscn" id="3_ui"]
-[ext_resource type="Script" path="res://Senses/AuralAwareness.gd" id="4"]
-[ext_resource type="Script" path="res://Senses/MultiVisionHandler.gd" id="5"]
-[ext_resource type="Script" path="res://scripts/tactile_nerve_network.gd" id="7_nerve"]
+[ext_resource type="Script" uid="uid://p1ribj0747le" path="res://Senses/AuralAwareness.gd" id="4"]
+[ext_resource type="Script" uid="uid://d1pughmgxdadg" path="res://Senses/MultiVisionHandler.gd" id="5"]
+[ext_resource type="Script" uid="uid://bpv6dkgdo5vnq" path="res://Senses/RoomSpatialContext.gd" id="6_room"]
+[ext_resource type="Script" uid="uid://bm3mc6fc4fpax" path="res://scripts/tactile_nerve_network.gd" id="7_nerve"]
 [ext_resource type="PackedScene" uid="uid://cqhw276realc" path="res://addons/godot-xr-tools/functions/function_pointer.tscn" id="8_ptr"]
-[ext_resource type="PackedScene" uid="uid://b2x8jen9vs8u1" path="res://Body/Lumax_Jen.tscn" id="9_jen"]
+[ext_resource type="PackedScene" uid="uid://b2x8jeoavs8u1" path="res://Body/Lumax_Jen.tscn" id="9_jen"]
+[ext_resource type="Script" uid="uid://b2hqi3fbnsbdb" path="res://Nexus/MultiplayerManager.gd" id="10_mp"]
 
 [sub_resource type="ProceduralSkyMaterial" id="6"]
 
@@ -21,55 +23,72 @@ ambient_light_source = 2
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_426a5"]
 
-[node name="LumaxCore" type="Node3D"]
+[node name="LumaxCore" type="Node3D" unique_id=1540347243]
 script = ExtResource("1")
+mind_subviewport_stay_when_visible = true
+boot_skip_vision_subviewports = false
+boot_skip_presence_cortex = false
+boot_presence_cortex_delay_sec = 0.0
 
-[node name="TactileNerveNetwork" type="Node" parent="."]
+[node name="TactileNerveNetwork" type="Node" parent="." unique_id=1202948012]
 script = ExtResource("7_nerve")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1867266682]
 environment = SubResource("8")
 camera_attributes = SubResource("CameraAttributesPractical_426a5")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1382295146]
 transform = Transform3D(0.707, -0.5, 0.5, 0, 0.707, 0.707, -0.707, -0.5, 0.5, 0, 5, 0)
+light_color = Color(1, 1, 0.7921569, 1)
+light_angular_distance = 24.69
+light_specular = 3.555
 shadow_enabled = true
 
-[node name="XROrigin3D" type="XROrigin3D" parent="."]
+[node name="XROrigin3D" type="XROrigin3D" parent="." unique_id=558596170]
 
-[node name="XRCamera3D" type="XRCamera3D" parent="XROrigin3D"]
-current = true
+[node name="XRCamera3D" type="XRCamera3D" parent="XROrigin3D" unique_id=1845680656]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+current = true
 
-[node name="LeftHand" type="XRController3D" parent="XROrigin3D"]
+[node name="LeftHand" type="XRController3D" parent="XROrigin3D" unique_id=281913537]
 tracker = &"left_hand"
 
-[node name="FunctionPointer" parent="XROrigin3D/LeftHand" instance=ExtResource("8_ptr")]
-show_laser = 1
+[node name="FunctionPointer" parent="XROrigin3D/LeftHand" unique_id=333212320 instance=ExtResource("8_ptr")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.02, 0.05, -0.1)
+suppress_radius = 0.02
+suppress_mask = 0
 
-[node name="RightHand" type="XRController3D" parent="XROrigin3D"]
+[node name="RightHand" type="XRController3D" parent="XROrigin3D" unique_id=1261175949]
 tracker = &"right_hand"
 
-[node name="FunctionPointer" parent="XROrigin3D/RightHand" instance=ExtResource("8_ptr")]
-show_laser = 1
+[node name="FunctionPointer" parent="XROrigin3D/RightHand" unique_id=662514202 instance=ExtResource("8_ptr")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.02, 0.05, -0.1)
+suppress_radius = 0.02
+suppress_mask = 0
 
-[node name="Body" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 0, -1.2)
+[node name="Body" type="Node3D" parent="." unique_id=1530572658]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -2)
 
-[node name="Avatar" parent="Body" instance=ExtResource("9_jen")]
+[node name="Avatar" parent="Body" unique_id=38053474 instance=ExtResource("9_jen")]
+transform = Transform3D(-0.97535, 0, 0.22066334, 0, 1, 0, -0.22066334, 0, -0.97535, 0, 0, 0)
 
-[node name="Mind" parent="." instance=ExtResource("3_ui")]
+[node name="Mind" parent="." unique_id=159520486 instance=ExtResource("3_ui")]
 transform = Transform3D(0.965926, 0, -0.258819, 0, 1, 0, 0.258819, 0, 0.965926, -0.6, 1.2, -1.5)
 
-[node name="Soul" type="Node" parent="."]
+[node name="Soul" type="Node" parent="." unique_id=2072986426]
 script = ExtResource("2")
-server_ip = "127.0.0.1"
 
-[node name="Senses" type="Node" parent="."]
+[node name="Senses" type="Node" parent="." unique_id=1391244769]
 
-[node name="AuralAwareness" type="Node" parent="Senses"]
+[node name="AuralAwareness" type="Node" parent="Senses" unique_id=58534528]
 script = ExtResource("4")
 synapse = NodePath("../../Soul")
 
-[node name="MultiVisionHandler" type="Node" parent="Senses"]
+[node name="MultiVisionHandler" type="Node" parent="Senses" unique_id=1610260369]
 script = ExtResource("5")
+
+[node name="RoomSpatialContext" type="Node" parent="Senses" unique_id=355864724]
+script = ExtResource("6_room")
+
+[node name="MultiplayerManager" type="Node" parent="." unique_id=1896359060]
+script = ExtResource("10_mp")

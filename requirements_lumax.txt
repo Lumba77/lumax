@@ -11,14 +11,13 @@ auto-gptq
 optimum
 bitsandbytes
 # Audio & Senses
-pyaudio
 numpy
 scipy
 soundfile
 # Personality & Biological Logic
 python-dotenv
 aiohttp
-# Voice dependencies
+# Voice dependencies (torch comes in via torchvision; needed by body_interface EARS CUDA probe)
 faster-whisper
 piper-tts
 librosa

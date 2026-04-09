@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Continue"
+$RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
+$LogFile = Join-Path $RepoRoot "REMOTE_6002.log"
 Write-Host "📡 Connecting to CUSTOM Debug Protocol on 127.0.0.1:6002..."
 try {
     $client = [System.Net.Sockets.TcpClient]::new("127.0.0.1", 6002)
@@ -12,7 +14,7 @@ try {
             $log = $reader.ReadLine()
             if ($log) {
                 Write-Output "LOG >>> $log"
-                $log | Out-File -FilePath "C:\Users\lumba\Program\Lumax\REMOTE_6002.log" -Append -Encoding utf8
+                $log | Out-File -FilePath $LogFile -Append -Encoding utf8
             }
         }
         Start-Sleep -Milliseconds 100

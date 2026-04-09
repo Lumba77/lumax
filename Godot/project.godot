@@ -10,36 +10,71 @@ config_version=5
 
 [application]
 
-config/name="Lumax"
+config/name="Lumax_current"
+config/description="Transplant receiver — separate app_userdata from main Lumax."
 run/main_scene="res://Nexus/Lumax_Core.tscn"
 config/features=PackedStringArray("4.6")
 
 [audio]
 
+buses/default_bus_layout="uid://dgq1x54oyeson"
 driver/enable_input=true
 driver/mix_rate=16000
+driver/mix_rate.web=8000
 
 [autoload]
 
 LogMaster="*res://scripts/diagnostic/log_master.gd"
 XRToolsUserSettings="*uid://bqgb8i74tm0t"
 XRToolsRumbleManager="*uid://by853dk86g1qw"
+AuralAwareness="*res://Senses/AuralAwareness.gd"
+Lumax="*res://scripts/lumax.gd"
 
 [debug]
 
-settings/stdout/print_fps=false
+settings/stdout/verbose_stdout=true
+file_logging/enable_file_logging=true
 settings/logging/enable_file_logging=true
 settings/logging/enable_file_logging.pc=true
 settings/logging/enable_file_logging.mobile=true
 settings/logging/log_path="user://logs/godot.log"
-settings/logging/max_log_files=5
+settings/logging/max_log_files=20
 
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/vrm/plugin.cfg", "res://addons/mixamo_animation_retargeter/plugin.cfg", "res://addons/godot-xr-tools/plugin.cfg")
 
+[filesystem]
+
+import/blender/enabled=false
+
+[godot_xr_tools]
+
+player/standard_height=1.8
+
+[input_devices]
+
+pointing/android/enable_long_press_as_right_click=true
+sensors/enable_gravity=true
+pen_tablet/driver.windows="auto"
+
+[internationalization]
+
+rendering/root_node_layout_direction=1
+pseudolocalization/replace_with_accents=false
+
+[physics]
+
+common/enable_object_picking=false
+
 [rendering]
 
+global_illumination/gi/use_half_resolution=true
+camera/depth_of_field/depth_of_field_bokeh_shape=0
+environment/glow/upscale_mode=0
+global_illumination/sdfgi/probe_ray_count=0
+global_illumination/sdfgi/frames_to_converge=2
+environment/volumetric_fog/use_filter=0
 viewport/transparent_background=true
 renderer/quality/driver_name="Mobile"
 vrs/mode.mobile=0
@@ -49,9 +84,8 @@ anti_aliasing/quality/msaa_3d.mobile=0
 
 openxr/enabled=true
 openxr/default_action_map="res://Nexus/lumax_input_v2.tres"
-openxr/foveation_level=3
-openxr/foveation_dynamic=true
+openxr/foveation_level=0
 shaders/enabled=true
-openxr/extensions/meta_xr=true
-openxr/extensions/automatically_request_runtime_permissions=true
+openxr/extensions/meta_xr=false
+openxr/extensions/automatically_request_runtime_permissions=false
 hybrid_app/enabled=false

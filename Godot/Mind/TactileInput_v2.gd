@@ -189,18 +189,15 @@ func _build_keyboard() -> void:
 	
 	# --- VISION COCKPIT (Triple Column) ---
 	var cockpit_hbox := HBoxContainer.new()
-	cockpit_hbox.add_theme_constant_override("separation", 10)
+	cockpit_hbox.add_theme_constant_override("separation", KEY_GAP)
 	root_vbox.add_child(cockpit_hbox)
 	
 	# 1. USER POV PREVIEW
-	var u_bg = PanelContainer.new(); u_bg.custom_minimum_size = Vector2(60, 60); cockpit_hbox.add_child(u_bg)
 	_user_preview = TextureRect.new()
 	_user_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_user_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_user_preview.set_anchors_preset(PRESET_FULL_RECT)
-	_user_preview.size_flags_horizontal = SIZE_EXPAND_FILL
-	_user_preview.size_flags_vertical = SIZE_EXPAND_FILL
-	u_bg.add_child(_user_preview)
+	_user_preview.custom_minimum_size = Vector2(80, 80) # Slimmer for vertical fit
+	cockpit_hbox.add_child(_user_preview)
 	
 	# 2. CONTROL CENTER (Slider & Buffer)
 	var control_vbox := VBoxContainer.new()
@@ -217,22 +214,19 @@ func _build_keyboard() -> void:
 	buffer_panel.add_theme_stylebox_override("panel", _buffer_style)
 	_buffer_label = Label.new()
 	_buffer_label.text = "> " + _buffer + "_"
-	_buffer_label.add_theme_font_size_override("font_size", 18)
+	_buffer_label.add_theme_font_size_override("font_size", 20) # Slightly smaller font
 	_buffer_label.add_theme_color_override("font_color", Color.CYAN)
-	_buffer_label.custom_minimum_size.y = 30
+	_buffer_label.custom_minimum_size.y = 35
 	_buffer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_buffer_label.clip_text = true
 	buffer_panel.add_child(_buffer_label)
 	
 	# 3. JEN POV PREVIEW
-	var j_bg = PanelContainer.new(); j_bg.custom_minimum_size = Vector2(60, 60); cockpit_hbox.add_child(j_bg)
 	_jen_preview = TextureRect.new()
 	_jen_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_jen_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_jen_preview.set_anchors_preset(PRESET_FULL_RECT)
-	_jen_preview.size_flags_horizontal = SIZE_EXPAND_FILL
-	_jen_preview.size_flags_vertical = SIZE_EXPAND_FILL
-	j_bg.add_child(_jen_preview)
+	_jen_preview.custom_minimum_size = Vector2(80, 80)
+	cockpit_hbox.add_child(_jen_preview)
 
 	# --- INTERACTION AREA ---
 	var main_hbox := HBoxContainer.new()
@@ -297,30 +291,26 @@ func _create_key_btn(kd: Dictionary) -> Button:
 	btn.add_theme_stylebox_override("normal", sb_n); btn.add_theme_stylebox_override("hover", sb_h); btn.add_theme_stylebox_override("pressed", sb_p)
 
 	var lbl_l = Label.new(); lbl_l.name = "LabelL"
-	lbl_l.text = kd.get("l", "").to_upper() if kd.get("l", "").length() == 1 else kd.get("l", "")
+	lbl_l.text = kd.get("u", "") if _shift_down else kd.get("l", "")
 	lbl_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; lbl_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl_l.set_anchors_preset(PRESET_FULL_RECT)
 	lbl_l.add_theme_font_size_override("font_size", 22 if lbl_l.text.length() <= 2 else 14)
 	btn.add_child(lbl_l)
-
-	if kd.has("u") and not kd.get("u", "").is_empty():
-		var banner = ColorRect.new(); banner.name = "Banner"; banner.color = Color(0, 0, 0, 0.4); banner.mouse_filter = Control.MOUSE_FILTER_IGNORE; banner.set_anchors_preset(PRESET_BOTTOM_WIDE); banner.custom_minimum_size.y = 18; btn.add_child(banner)
-		var lbl_u = Label.new(); lbl_u.name = "LabelU"; lbl_u.text = kd.get("u", ""); lbl_u.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; lbl_u.set_anchors_preset(PRESET_FULL_RECT); lbl_u.add_theme_font_size_override("font_size", 12); lbl_u.modulate = Color(0.6, 0.6, 0.6); banner.add_child(lbl_u)
-		lbl_l.anchor_bottom = 0.7
 	
 	btn.pressed.connect(_on_key_btn_pressed.bind(kd, btn)); _keys.append({"btn": btn, "d": kd}); return btn
 
 func _update_key_labels() -> void:
 	for k in _keys:
 		var lbl_l = k.btn.get_node_or_null("LabelL")
-		var lbl_u = k.btn.get_node_or_null("Banner/LabelU")
 		if k.d.get("act", "") == "":
 			if _shift_down:
-				if lbl_u: lbl_u.modulate = Color.WHITE
-				if lbl_l: lbl_l.modulate = Color(0.5, 0.5, 0.5)
+				if lbl_l: 
+					lbl_l.modulate = Color.WHITE
+					lbl_l.text = k.d.get("u", k.d.get("l", ""))
 			else:
-				if lbl_u: lbl_u.modulate = Color(0.6, 0.6, 0.6)
-				if lbl_l: lbl_l.modulate = Color.WHITE
+				if lbl_l: 
+					lbl_l.modulate = Color.WHITE
+					lbl_l.text = k.d.get("l", "")
 
 func update_previews(user_tex: Texture2D, jen_tex: Texture2D) -> void:
 	if _user_preview and is_instance_valid(_user_preview):
