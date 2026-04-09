@@ -114,6 +114,13 @@ async def auth_logout(request: Request) -> dict[str, bool]:
     request.session.clear()
     return {"ok": True}
 
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Lightweight liveness for lumax_ops / AutonomousSentry (no login; keep port 8080 off public networks)."""
+    return {"status": "ok", "service": "lumax_webui"}
+
+
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANNOUNCEMENTS_PATH = os.path.join(BASE_DIR, "announcements.json")

@@ -291,7 +291,7 @@
             align-items: center;
         }
 
-        .input-container input {
+        .input-container input[type="text"] {
             flex: 1;
             background: transparent;
             border: none;
@@ -701,6 +701,11 @@
                     <button id="mic-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; padding:0 10px;">🎙️</button>
                     <input type="text" id="chat-input" placeholder="Transmit thoughts to Jen..." autocomplete="off">
                     <div id="ptt-label" style="font-family:'Share Tech Mono'; font-size:0.7rem; color:var(--neon-blue);">[PTT_READY]</div>
+                    <label class="switch" style="flex-shrink:0;" title="Deep think: richer vector memory + longer reply budget (slower). Fast path stays default when off.">
+                        <input type="checkbox" id="check-deep-think">
+                        <span class="slider"></span>
+                    </label>
+                    <span style="font-family:'Share Tech Mono'; font-size:0.65rem; color:var(--neon-blue); opacity:0.85;">DEEP</span>
                 </div>
             </div>
 
@@ -1313,7 +1318,13 @@
         }
 
         async function sendChat(text) {
-            const data = await callApi('chat', 'POST', { input: text, vessel: 'WEB_BRIDGE' });
+            const deepEl = document.getElementById('check-deep-think');
+            const deepThink = deepEl && deepEl.checked;
+            const data = await callApi('chat', 'POST', {
+                input: text,
+                vessel: 'WEB_BRIDGE',
+                deep_think: deepThink,
+            });
             if (data && data.response) {
                 addMessage('LUMAX', data.response);
                 if (data.audio) {

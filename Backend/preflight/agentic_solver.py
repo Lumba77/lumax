@@ -3,9 +3,11 @@ import logging
 import os
 import subprocess
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import httpx
+
+from preflight.json_util import load_playbook_path
 
 
 logger = logging.getLogger("AgenticSolver")
@@ -21,6 +23,7 @@ ALLOWED_ACTIONS = {
     "restart_service_soul",
     "restart_service_body",
     "restart_service_turbo",
+    "restart_service_ops",
     "inspect_containers",
     "capture_service_logs",
     "extended_test_probe",
@@ -45,6 +48,7 @@ def _build_prompt(failures: Dict[str, bool]) -> str:
         + "\n"
         f"Failures: {json.dumps(failures)}\n"
         "Rules: Prefer minimal actions. Never suggest destructive operations.\n"
+        "If only WEBUI is failing, prefer inspect_containers or restart_service_ops (when policy allows restarts).\n"
     )
 
 
@@ -109,59 +113,137 @@ def _parse_actions(text: str) -> Dict:
     }
 
 
-def _ollama_solver_base_url(solver_url: str) -> str:
-    """Strip /api/generate or /api/chat to get origin for fallbacks."""
-    u = (solver_url or "").strip().rstrip("/")
-    for suffix in ("/api/generate", "/api/chat"):
+def _strip_ollama_api_suffixes(url: str) -> str:
+    """Strip trailing /api/* paths so we get scheme://host:port."""
+    u = (url or "").strip().rstrip("/")
+    for suffix in ("/api/generate", "/api/chat", "/api/embeddings", "/v1/chat/completions"):
         if u.endswith(suffix):
             return u[: -len(suffix)].rstrip("/")
     return u
 
 
-def _ollama_complete_text(url: str, model: str, prompt: str, timeout: float) -> str:
+def solver_ollama_base_url() -> str:
     """
-    Prefer POST /api/generate. Some Ollama builds/proxies return 404 there; retry /api/chat.
+    Ollama base URL (no /api/... path).
+
+    Priority: LUMAX_SENTRY_OLLAMA_HOST → LUMAX_SENTRY_SOLVER_URL (legacy full URL) → OLLAMA_HOST.
     """
-    payload_gen = {"model": model, "prompt": prompt, "stream": False}
-    base = _ollama_solver_base_url(url)
-    gen_url = url if "/api/generate" in url or "/api/chat" in url else f"{base}/api/generate"
-    chat_url = f"{base}/api/chat"
-    with httpx.Client(timeout=timeout) as client:
-        r = client.post(gen_url, json=payload_gen)
-        if r.status_code == 404:
-            logger.debug("Ollama POST %s -> 404; retrying %s", gen_url, chat_url)
-            r2 = client.post(
-                chat_url,
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                },
-            )
-            r2.raise_for_status()
-            body = r2.json()
-            msg = body.get("message")
-            if isinstance(msg, dict):
-                return str(msg.get("content", "")).strip()
-            return str(body.get("response", "") or "").strip()
-        r.raise_for_status()
+    explicit = os.getenv("LUMAX_SENTRY_OLLAMA_HOST", "").strip()
+    if explicit:
+        return _strip_ollama_api_suffixes(explicit)
+    legacy = os.getenv("LUMAX_SENTRY_SOLVER_URL", "").strip()
+    if legacy:
+        return _strip_ollama_api_suffixes(legacy)
+    oh = os.getenv("OLLAMA_HOST", "http://lumax_ollama_backup:11434").strip().rstrip("/")
+    return oh
+
+
+def _ollama_try_generate(client: httpx.Client, base: str, model: str, prompt: str) -> Tuple[Optional[int], str]:
+    r = client.post(
+        f"{base}/api/generate",
+        json={"model": model, "prompt": prompt, "stream": False},
+    )
+    if r.status_code != 200:
+        return r.status_code, ""
+    try:
         body = r.json()
-        return str(body.get("response", "")).strip()
+    except Exception:
+        return 200, ""
+    return 200, str(body.get("response", "")).strip()
+
+
+def _ollama_try_chat(client: httpx.Client, base: str, model: str, prompt: str) -> Tuple[Optional[int], str]:
+    r = client.post(
+        f"{base}/api/chat",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        },
+    )
+    if r.status_code != 200:
+        return r.status_code, ""
+    try:
+        body = r.json()
+    except Exception:
+        return 200, ""
+    msg = body.get("message")
+    if isinstance(msg, dict):
+        return 200, str(msg.get("content", "")).strip()
+    return 200, str(body.get("response", "") or "").strip()
+
+
+def _ollama_complete_text(model: str, prompt: str, timeout: float) -> str:
+    """
+    Call Ollama /api/generate and optionally /api/chat. Does not raise on HTTP errors; logs and returns "".
+    LUMAX_SENTRY_SOLVER_HTTP_MODE: auto | generate | chat
+    """
+    base = solver_ollama_base_url()
+    mode = os.getenv("LUMAX_SENTRY_SOLVER_HTTP_MODE", "auto").strip().lower()
+    if mode not in ("auto", "generate", "chat"):
+        mode = "auto"
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            if mode == "chat":
+                code, text = _ollama_try_chat(client, base, model, prompt)
+                if code == 200 and text:
+                    return text
+                logger.debug("Ollama chat-only mode: code=%s empty=%s base=%s", code, not text, base)
+                return ""
+
+            # generate first for "auto" and "generate"
+            code, text = _ollama_try_generate(client, base, model, prompt)
+            if code == 200 and text:
+                return text
+            if mode == "generate":
+                if code == 404:
+                    logger.warning(
+                        "Ollama /api/generate returned 404 — missing model %r or wrong base %s",
+                        model,
+                        base,
+                    )
+                else:
+                    logger.debug("Ollama /api/generate non-OK code=%s base=%s", code, base)
+                return ""
+
+            # auto: fallback to chat if generate failed or returned empty
+            if mode == "auto":
+                c2, t2 = _ollama_try_chat(client, base, model, prompt)
+                if c2 == 200 and t2:
+                    return t2
+                if c2 == 404:
+                    logger.debug(
+                        "Ollama /api/chat not available (404) at %s — generate may have failed or model missing",
+                        base,
+                    )
+                elif c2 != 200:
+                    logger.debug("Ollama /api/chat code=%s base=%s", c2, base)
+                if code == 404:
+                    logger.warning(
+                        "Ollama solver: both generate and chat failed for model %r at %s",
+                        model,
+                        base,
+                    )
+                return ""
+    except httpx.RequestError as e:
+        logger.warning("Ollama request error (base=%s): %s", base, e)
+        return ""
+
+    return ""
 
 
 def _solve_with_ollama(prompt: str) -> Dict:
-    url = os.getenv("LUMAX_SENTRY_SOLVER_URL", "http://host.docker.internal:11434/api/generate").strip()
     model = os.getenv("LUMAX_SENTRY_SOLVER_MODEL", "qwen2.5-coder:latest").strip()
     timeout = float(os.getenv("LUMAX_SENTRY_SOLVER_TIMEOUT_SEC", "20"))
-    text = _ollama_complete_text(url, model, prompt, timeout)
+    text = _ollama_complete_text(model, prompt, timeout)
     return _parse_actions(text)
 
 
 def _solve_text_with_ollama(prompt: str) -> str:
-    url = os.getenv("LUMAX_SENTRY_SOLVER_URL", "http://host.docker.internal:11434/api/generate").strip()
     model = os.getenv("LUMAX_SENTRY_SOLVER_MODEL", "qwen2.5-coder:latest").strip()
     timeout = float(os.getenv("LUMAX_SENTRY_SOLVER_TIMEOUT_SEC", "20"))
-    return _ollama_complete_text(url, model, prompt, timeout)
+    return _ollama_complete_text(model, prompt, timeout)
 
 
 def _solve_with_command(prompt: str) -> Dict:
@@ -199,8 +281,7 @@ def _read_unstable_features() -> List[Dict]:
     if not path or not os.path.isfile(path):
         return []
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = load_playbook_path(path, encoding="utf-8-sig")
         if not isinstance(data, dict):
             return []
         features = data.get("features", [])

@@ -134,3 +134,6 @@ Human session history (this file) pairs with in-engine logging: see [context_log
   - Docs: **`HANDOFF.md`** rewritten for current layout; **`context.md`** ingress paths and Godot/backend pointers updated; this log appended.
   - Related files: [.gitignore, docker-compose.yml, HANDOFF.md, context.md, Godot/Soul/Synapse.gd, Godot/Nexus/MultiplayerManager.gd, div/files/]
 
+- Session start [2026-04-09]
+- Task 18 end Docker: `lumax_ollama_backup` inspected (Up, healthy; healthcheck `/api/tags` every 20s — not a reload loop; Ollama “starting runner” in logs is normal per-request model load). Web UI `:8080` was down because uvicorn crashed on `ModuleNotFoundError: itsdangerous` (image predates `Dockerfile.unified` itsdangerous layer); fixed live with `pip install itsdangerous` + `docker restart lumax_ops` (HTTP 200). Permanent fix: rebuild `lumax_unified` (`docker compose build lumax_soul` or `build_lumax_unified.ps1`). [docker-compose.yml, Dockerfile.unified, lumax_ops logs]
+

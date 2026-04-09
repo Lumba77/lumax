@@ -24,6 +24,8 @@ signal soul_runtime_status_received(data: Dictionary)
 @export var quest_lan_auto_discover: bool = true
 ## STT/Soul: print every HTTP step (large STT payloads spam the Godot console and trigger "output overflow").
 @export var verbose_http_logs: bool = false
+## When true, POST /compagent includes deep_think (richer vector retrieval + higher decode budget; slower than VR fast path).
+@export var deep_think: bool = false
 
 ## Filled from res://lumax_network_config.json (connect_quest.ps1 / Docker sentry): PC LAN for P2P / non-reverse fallbacks.
 var pc_lan_ip: String = ""
@@ -413,6 +415,8 @@ func send_chat_message(text: String, channel: String = "text", image_base64: Str
 	var cr := cloud_routing.strip_edges()
 	if cr.length() > 0:
 		payload["cloud_routing"] = cr
+	if deep_think:
+		payload["deep_think"] = true
 	var log_s := "LUMAX: Queuing Soul POST %s (chars=%d, channel=%s, backlog=%d)" % [url, text.length(), channel, _soul_post_queue.size()]
 	if log_s.length() > 200:
 		log_s = log_s.substr(0, 197) + "..."

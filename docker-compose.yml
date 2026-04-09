@@ -1,5 +1,6 @@
 # Home Assistant: lumax_homeassistant (./Backend/HomeAssistant:/config), port 8123. HA_URL/HA_TOKEN for lumax_soul from .env.
 # Optional .env next to this file:
+#   COMPOSE_PROJECT_NAME — set to match `docker compose ls` (e.g. lumax_current) so `docker compose` heal actions from lumax_ops target this stack (required with Docker socket mount).
 #   LUMAX_MODELS_ROOT=D:/Lumax/models
 #   LUMAX_PIPER_MODEL_DIR=.../tts-piper-amy/en/en_US/amy/medium
 #   LUMAX_TURBO_MODEL_DIR=.../XTTSv2-Streaming-ONNX
@@ -9,17 +10,21 @@
 # Windows: .\build_lumax_unified.ps1 — reuses a local BuildKit cache so the big llama-cpp wheel is not re-downloaded every time.
 # In-stack Ollama: docker compose build lumax_ollama_backup && docker compose up -d (default stack; models under LUMAX_MODELS_ROOT/Ollama).
 # If you run Ollama on the host on :11434, stop one or the other to avoid a port bind conflict (or set OLLAMA_HOST=http://host.docker.internal:11434 and stop in-stack Ollama).
-#   OLLAMA_HEALTHCHECK_URL=http://127.0.0.1:11434/api/tags  — probe URL for lumax_ollama_backup healthcheck (container-internal host/port).
+#   OLLAMA_DEBUG=-1 — Ollama slog WARN+ (quieter than default INFO).
+#   OLLAMA_HEALTHCHECK_INTERVAL — Docker healthcheck period (default 30s; TCP-only, no Gin spam). Use 300s only if you accept slow "healthy".
 # Pull models into the container: scripts/pull_ollama_backup_models.ps1
 
 services:
   # --- OLLAMA: GPU inference for Ollama models (embeddings, helpers, cloud-router, sentry solver, etc.) ---
+  # If this service won't start: `docker compose logs lumax_ollama_backup` — often missing nvidia-container-toolkit / GPU on WSL2,
+  # or port 11434 already in use. For CPU-only testing, comment out the `deploy:` GPU block below.
   lumax_ollama_backup:
     build:
       context: ./Backend/Mind/Cognition/Ollama
       dockerfile: Dockerfile
     image: lumax_ollama_backup:latest
     container_name: lumax_ollama_backup
+    restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
@@ -28,7 +33,8 @@ services:
     environment:
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - OLLAMA_MODELS=/app/models/Ollama
-      - OLLAMA_HEALTHCHECK_URL=${OLLAMA_HEALTHCHECK_URL:-http://127.0.0.1:11434/api/tags}
+      # Ollama internal slog: -1 => WARN+ (suppresses routine INFO). Override in .env with OLLAMA_DEBUG=1 when debugging.
+      - OLLAMA_DEBUG=${OLLAMA_DEBUG:--1}
     deploy:
       resources:
         reservations:
@@ -37,11 +43,13 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf $${OLLAMA_HEALTHCHECK_URL} || exit 1"]
-      interval: 20s
+      # TCP connect only — does not send HTTP, so Gin does not log each probe (rebuild image after Dockerfile adds netcat).
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 11434 || exit 1"]
+      # Default 30s so service_healthy resolves in ~1–2 min; 300s delays first probe and blocks soul/ops for minutes.
+      interval: ${OLLAMA_HEALTHCHECK_INTERVAL:-30s}
       timeout: 5s
-      retries: 6
-      start_period: 45s
+      retries: 8
+      start_period: 120s
     networks:
       - lumax_local
 
@@ -233,22 +241,32 @@ services:
     image: lumax_unified:latest
     container_name: lumax_ops
     depends_on:
+      # Web UI + sentry can run while Ollama warms up; sentry retries OLLAMA_HOST. (Soul still waits for healthy Ollama.)
       lumax_ollama_backup:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "8080:8080" # WEB UI
       - "8006:8006" # SENTRY
-    # RUN WEB APP AND SENTRY IN ONE CONTAINER (Web UI → Frontend/Body/Webui)
-    command: >
-      sh -c "python -m uvicorn web_app:app --app-dir /app/Frontend/Body/Webui --host 0.0.0.0 --port 8080 --log-level warning --no-access-log &
-             python /app/Backend/autonomous_sentry.py"
+    # RUN WEB APP AND SENTRY IN ONE CONTAINER (Web UI → Frontend/Body/Webui).
+    # scripts/run_lumax_ops.sh runs lumax_ops_webui_bootstrap.py first (self-heal missing pip deps if image is stale).
+    # Strip CRLF when repo is checked out on Windows (volume .:/app); else set/python see paths ending in \r.
+    command:
+      - sh
+      - -c
+      - sed -i 's/\r$//' /app/scripts/run_lumax_ops.sh; exec sh /app/scripts/run_lumax_ops.sh
     volumes:
       - .:/app
       - ollama:/root/.ollama
+      # Host Docker API (lumax_ops sentry: docker compose / restart heal). Root-equivalent access — do not expose 8080 on untrusted networks.
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      # Pass through from host .env so in-container `docker compose` uses the same project as your stack.
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-}
       - SOUL_URL=http://lumax_soul:8000
       - EARS_URL=http://lumax_body:8001
       # Web UI (8080): set LUMAX_WEBUI_PASSWORD in .env before exposing the port on untrusted networks.
+      # Set LUMAX_OPS_WEBUI_BOOTSTRAP=0 for air-gapped hosts (no pip download on start).
+      - LUMAX_OPS_WEBUI_BOOTSTRAP=${LUMAX_OPS_WEBUI_BOOTSTRAP:-1}
       - LUMAX_WEBUI_PASSWORD=${LUMAX_WEBUI_PASSWORD:-}
       - LUMAX_WEBUI_SESSION_SECRET=${LUMAX_WEBUI_SESSION_SECRET:-}
       - LUMAX_WEBUI_SESSION_MAX_AGE=${LUMAX_WEBUI_SESSION_MAX_AGE:-604800}
@@ -262,8 +280,11 @@ services:
       - LUMAX_SENTRY_SOLVER_MODE=${LUMAX_SENTRY_SOLVER_MODE:-command}
       # command mode is ideal for local ONNX/TensorRT runner wrappers.
       - LUMAX_SENTRY_SOLVER_CMD=${LUMAX_SENTRY_SOLVER_CMD:-python /app/scripts/automation/solver_runner.py --model qwen2.5-coder-3b-instruct-onnx --prompt "{prompt}"}
-      # optional ollama fallback mode (same Ollama as lumax_soul by default):
-      - LUMAX_SENTRY_SOLVER_URL=${LUMAX_SENTRY_SOLVER_URL:-http://lumax_ollama_backup:11434/api/generate}
+      # Agentic solver — Ollama: base from OLLAMA_HOST (below) unless LUMAX_SENTRY_OLLAMA_HOST or legacy LUMAX_SENTRY_SOLVER_URL (full .../api/generate URL) is set.
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://lumax_ollama_backup:11434}
+      - LUMAX_SENTRY_OLLAMA_HOST=${LUMAX_SENTRY_OLLAMA_HOST:-}
+      - LUMAX_SENTRY_SOLVER_HTTP_MODE=${LUMAX_SENTRY_SOLVER_HTTP_MODE:-auto}
+      - LUMAX_SENTRY_SOLVER_URL=${LUMAX_SENTRY_SOLVER_URL:-}
       - LUMAX_SENTRY_SOLVER_MODEL=${LUMAX_SENTRY_SOLVER_MODEL:-qwen2.5-coder:latest}
       - LUMAX_SENTRY_SOLVER_TIMEOUT_SEC=${LUMAX_SENTRY_SOLVER_TIMEOUT_SEC:-20}
       # Pause switches for deployment windows / controlled rollouts.

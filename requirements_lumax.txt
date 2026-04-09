@@ -1,5 +1,7 @@
 # Core API
 fastapi
+itsdangerous
+json5
 uvicorn
 httpx
 pydantic

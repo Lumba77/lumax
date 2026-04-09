@@ -750,6 +750,17 @@ When you return **live**, you may sense **residual growth** (intuition, mood, ph
             spatial = sensory_context.get("spatial_map", "") or sensory_context.get("room_map", "")
             if spatial:
                 prompt += f"\n[ROOM_MAP — play space, mesh anchors, camera placements (see [ROOM_CAMERAS_PLACEMENT] if present), merged with stills]: {spatial}"
+            session_summary = sensory_context.get("session_summary") or sensory_context.get("session_spine")
+            if session_summary:
+                ss = str(session_summary).strip()
+                if ss:
+                    if len(ss) > 4000:
+                        ss = ss[:4000] + "…"
+                    prompt += (
+                        "\n[SESSION SPINE — persistent rolling summary of this dialogue session; "
+                        "may omit very recent lines already in the transcript — use for continuity, not repetition]:\n"
+                        + ss
+                    )
             mcp_feed = sensory_context.get("mcp_agent_feed") or sensory_context.get("mcp_tool_results")
             if mcp_feed:
                 mf = str(mcp_feed).strip()

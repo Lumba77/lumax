@@ -8,7 +8,7 @@
   "actions": {
     "allow_docker_compose_up": true,
     "allow_bridge_reverse": true,
-    "allow_service_restart": false,
+    "allow_service_restart": true,
     "allow_preflight_level_switch": true,
     "allow_extended_test_probe": true,
     "allow_architect_escalation": true
@@ -23,6 +23,7 @@
   ],
   "notes": [
     "Set allow_service_restart=true only when restart loops are controlled.",
+    "restart_service_ops restarts the Web UI + sentry container (requires Docker socket on lumax_ops).",
     "Keep approval_required_actions strict for safety while still allowing inspection freedom.",
     "rebuild_service_soul requires approval unless autonomous_sentry runs it with reason=gpu-guard and LUMAX_SENTRY_GPU_GUARD_ALLOW_AUTO_REMEDIATE=true."
   ]

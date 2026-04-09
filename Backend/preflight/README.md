@@ -14,6 +14,10 @@ This module provides lightweight preflight checks that run inside `lumax_ops` (v
 - `standard`: adds service health checks (`lumax_soul`, `lumax_body`, `lumax_turbochat`).
 - `deep`: adds optional loopback bridge probe.
 
+## Playbook JSON (JSON5)
+
+`watchdog_policy.json` and `unstable_features.json` are loaded via `preflight/json_util.py`: with **`json5`** installed you can use **`//` comments**, **`/* */`**, and **trailing commas**. Plain JSON still works. The Docker image installs `json5` with `lumax_unified`.
+
 ## Configuration (docker-compose env)
 
 - `LUMAX_PREFLIGHT_LEVEL=light|standard|deep`
@@ -21,7 +25,9 @@ This module provides lightweight preflight checks that run inside `lumax_ops` (v
 - `LUMAX_PREFLIGHT_BRIDGE_URL` (optional, deep mode)
 - `LUMAX_SENTRY_AGENTIC=true|false` (enable model-guided heal decisions)
 - `LUMAX_SENTRY_SOLVER_MODE=command|ollama` (`command` recommended for ONNX/TensorRT local runner; default in code is `command` when unset)
-- `LUMAX_SENTRY_SOLVER_URL` — in `ollama` mode, if `POST .../api/generate` returns **404**, the solver retries **`/api/chat`** on the same host (some Ollama/proxy layouts).
+- Ollama base URL resolution (in `ollama` mode): `LUMAX_SENTRY_OLLAMA_HOST` (optional, scheme://host:port) → else `LUMAX_SENTRY_SOLVER_URL` with any `/api/...` path stripped (legacy) → else `OLLAMA_HOST` (compose passes the same default as `lumax_soul`).
+- `LUMAX_SENTRY_SOLVER_HTTP_MODE=auto|generate|chat` — `auto` tries `/api/generate` then `/api/chat`; failures log without throwing (no noisy 404 spam from `raise_for_status`).
+- `LUMAX_SENTRY_SOLVER_URL` — optional legacy override when it includes a full path; prefer base-only env vars above.
 - `LUMAX_SENTRY_AGENTIC_PAUSED=true|false` (hard pause during deployment)
 - `LUMAX_SENTRY_DEPLOY_LOCK_PATH` (pause when lock file exists)
 - `LUMAX_SENTRY_PAUSE_UNTIL_EPOCH` (pause until unix epoch seconds)

@@ -117,6 +117,11 @@ SOFT_PROMPT_TOKENS_HIGH = int(os.getenv("LUMAX_SOFT_PROMPT_TOKENS_HIGH", "12000"
 SOFT_FORCE_CLOUD_PROMPT_TOKENS = int(os.getenv("LUMAX_SOFT_FORCE_CLOUD_PROMPT_TOKENS", "20000"))
 SOFT_LOCAL_MAX_TOKENS_NORMAL = int(os.getenv("LUMAX_SOFT_LOCAL_MAX_TOKENS_NORMAL", "768"))
 SOFT_LOCAL_MAX_TOKENS_HOT = int(os.getenv("LUMAX_SOFT_LOCAL_MAX_TOKENS_HOT", "320"))
+SOFT_LOCAL_MAX_TOKENS_DEEP = int(os.getenv("LUMAX_SOFT_LOCAL_MAX_TOKENS_DEEP", "2048"))
+MEMORY_TOP_K_HOT = int(os.getenv("LUMAX_MEMORY_TOP_K_HOT", "3"))
+MEMORY_TOP_K_DEEP = int(os.getenv("LUMAX_MEMORY_TOP_K_DEEP", "12"))
+MEMORY_LORE_TOP_K_HOT = int(os.getenv("LUMAX_MEMORY_LORE_TOP_K_HOT", "1"))
+MEMORY_LORE_TOP_K_DEEP = int(os.getenv("LUMAX_MEMORY_LORE_TOP_K_DEEP", "4"))
 LOCAL_VISION_ENABLED = _env_bool("LUMAX_LOCAL_VISION_ENABLED", True)
 # Preferred: ONNX bundle from export_tiny_vision_onnx.py (English Swin-tiny + DistilGPT2):
 # https://huggingface.co/yesidcanoc/image-captioning-swin-tiny-distilgpt2
@@ -359,6 +364,55 @@ async def _generate_soul_text(
     return raw, engine.engine_type
 
 
+async def _refresh_session_summary_background(session_id: str) -> None:
+    """Slow path: compress recent transcript + prior spine into Redis (fire-and-forget)."""
+    if _env_bool("LUMAX_SESSION_SUMMARY_DISABLE", False):
+        return
+    global redis_memory
+    try:
+        rm = redis_memory
+        if rm is None:
+            return
+        old = rm.get_session_summary(session_id)
+        hist = await rm.get_session_history(session_id)
+        lines: List[str] = []
+        for m in hist.messages[-16:]:
+            if m.role not in ("user", "ai"):
+                continue
+            role = "Daniel" if m.role == "user" else "Jen"
+            lines.append(f"{role}: {(m.content or '')[:2500]}")
+        if not lines:
+            return
+        body = "\n".join(lines)
+        prompt = (
+            "Compress the following dialogue into a persistent rolling summary (max ~700 words). "
+            "Capture: themes, emotional tone, open threads, commitments, concrete facts. "
+            "Neutral third-person or concise list; no roleplay.\n\n"
+            f"Prior summary (may be empty):\n{old[:4500]}\n\nRecent dialogue:\n{body}\n\nNew summary:"
+        )
+        _oh = ollama_http_headers()
+        predict = int(os.getenv("LUMAX_SESSION_SUMMARY_NUM_PREDICT", "640"))
+        async with httpx.AsyncClient(timeout=120.0) as hc:
+            resp = await hc.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": SMOLLM_HELPER_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": predict},
+                },
+                headers=_oh,
+            )
+        if resp.status_code != 200:
+            logger.warning("Session summary: Ollama HTTP %s", resp.status_code)
+            return
+        raw = (resp.json().get("response") or "").strip()
+        if raw:
+            rm.set_session_summary(session_id, raw)
+    except Exception as e:
+        logger.warning("Session summary refresh failed: %s", e)
+
+
 app = FastAPI(title="Lumax Mind Core")
 
 # --- CORS Configuration ---
@@ -569,6 +623,8 @@ class CompagentRequest(BaseModel):
     lore_context: Optional[str] = None
     ## Optional: remote slot routing — openai | gemini | extra | local | rotate | splice (splice uses LUMAX_CLOUD_SPLICE_PERCENT).
     cloud_routing: Optional[str] = None
+    ## Slow path: richer vector retrieval + higher decode budget (web / background); VR hot path keeps default false.
+    deep_think: bool = False
 
 class UpdateSoulRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
@@ -1094,19 +1150,9 @@ async def handle_compagent_request(request: CompagentRequest):
     if raw_in:
         _bump_user_activity()
 
-    # ... (Wait for VRAM LOCK if local)
-
-    history_str = ""
-    # 1. Retrieve Memories
-    mems = []
-    if vector_memory:
-        mems = await vector_memory.retrieve_memories(request.session_id, request.input)
-    
-    mem_context = "\n".join([m['text'] for m in mems])
-    
-    # 2. Dual-Cortex Routing
-    full_prompt = f"{get_veiled_prompt(request)}\n\n[MEMORIES]\n{mem_context}\n\nUser: {request.input}\nRatatosk (transcribing for Jen):"
     session_id = request.session_id or "default_user"
+    history_str = ""
+    session_summary_text = ""
 
     # 0. Quick check for empty input to prevent repetitive "thinking" phrases
     if not request.input or request.input.strip() == "":
@@ -1190,6 +1236,8 @@ async def handle_compagent_request(request: CompagentRequest):
         if redis_memory is None: redis_memory = RedisMemory(host=REDIS_HOST, port=REDIS_PORT)
         if vector_memory is None: vector_memory = VectorMemory(ollama_host=OLLAMA_HOST, embed_model=OLLAMA_EMBED_MODEL)
         
+        session_summary_text = redis_memory.get_session_summary(session_id)
+
         # A. SHORT-TERM: Recent Conversation
         chat_history = await redis_memory.get_session_history(session_id)
         for msg in chat_history.messages[-8:]:
@@ -1197,8 +1245,13 @@ async def handle_compagent_request(request: CompagentRequest):
             history_str += f"{role}: {msg.content}\n"
         history_str += f"Daniel: {request.input}\n"
         
-        # B. LONG-TERM (Interrelational): Retrieve similar past experiences
-        relevant_mems = await vector_memory.retrieve_memories(session_id, request.input, n_results=3)
+        # B. LONG-TERM (Interrelational): tight top-k on hot path; deep_think widens retrieval (slow path).
+        deep = bool(request.deep_think)
+        nk = MEMORY_TOP_K_DEEP if deep else MEMORY_TOP_K_HOT
+        lk = MEMORY_LORE_TOP_K_DEEP if deep else MEMORY_LORE_TOP_K_HOT
+        relevant_mems = await vector_memory.retrieve_memories(
+            session_id, request.input, n_results=nk, lore_n_results=lk
+        )
         if relevant_mems:
             memory_context = "\n[RELEVANT_INTERRELATIONAL_CONTEXT]:\n"
             for mem in relevant_mems:
@@ -1221,6 +1274,9 @@ async def handle_compagent_request(request: CompagentRequest):
                     + vision_text
                 )
         sensory_ctx: Dict[str, Any] = {"visuals": visuals_for_prompt, "acoustics": body_metrics}
+        if session_summary_text:
+            inj = int(os.getenv("LUMAX_SESSION_SUMMARY_INJECT_MAX_CHARS", "4000"))
+            sensory_ctx["session_summary"] = session_summary_text[:inj]
         if spatial_map:
             sensory_ctx["spatial_map"] = spatial_map
         mcp_blob = (request.mcp_context or "").strip()
@@ -1290,7 +1346,10 @@ async def handle_compagent_request(request: CompagentRequest):
             full_system_prompt += memory_context
 
         cr_override = (request.cloud_routing or "").strip() or None
-        local_max_tokens = SOFT_LOCAL_MAX_TOKENS_NORMAL
+        if request.deep_think:
+            local_max_tokens = SOFT_LOCAL_MAX_TOKENS_DEEP
+        else:
+            local_max_tokens = SOFT_LOCAL_MAX_TOKENS_NORMAL
         governor_info: Dict[str, Any] = {
             "enabled": SOFT_GOV_ENABLED,
             "auto_cloud": False,
@@ -1303,7 +1362,7 @@ async def handle_compagent_request(request: CompagentRequest):
             proc_cpu = _sample_proc_cpu_pct()
             governor_info["prompt_est_tokens"] = prompt_est_tokens
             governor_info["proc_cpu_pct"] = round(proc_cpu, 1)
-            if proc_cpu >= SOFT_CPU_HOT_PCT:
+            if proc_cpu >= SOFT_CPU_HOT_PCT and not request.deep_think:
                 local_max_tokens = max(128, SOFT_LOCAL_MAX_TOKENS_HOT)
             if not cr_override and cloud_repertoire.configured_slots_public():
                 if prompt_est_tokens >= max(2000, SOFT_FORCE_CLOUD_PROMPT_TOKENS):
@@ -1373,6 +1432,14 @@ async def handle_compagent_request(request: CompagentRequest):
             if active_images:
                 for ib64 in active_images[:2]:
                     await redis_memory.push_reference_image(session_id, ib64)
+            try:
+                full_hist = await redis_memory.get_session_history(session_id)
+                user_msgs = sum(1 for m in full_hist.messages if m.role == "user")
+                every_n = int(os.getenv("LUMAX_SESSION_SUMMARY_EVERY_N_USER_TURNS", "5"))
+                if every_n > 0 and user_msgs % every_n == 0:
+                    asyncio.create_task(_refresh_session_summary_background(session_id))
+            except Exception as ex:
+                logger.debug("Session summary schedule: %s", ex)
             
             if text.strip() != "":
                 try:
@@ -1398,6 +1465,7 @@ async def handle_compagent_request(request: CompagentRequest):
         "mode": engine.engine_type,
         "inference_backend": inference_backend,
         "vision_mode": vision_mode if 'vision_mode' in locals() else "none",
+        "cognitive_mode": "deep_think" if request.deep_think else "fast",
         "runtime_governor": governor_info if 'governor_info' in locals() else {"enabled": SOFT_GOV_ENABLED},
         "safety_alerts": safety_alerts,
     })
