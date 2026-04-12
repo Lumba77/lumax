@@ -6,3 +6,6 @@ diffusers
 transformers
 accelerate
 pillow
+spandrel
+xformers
+safetensors

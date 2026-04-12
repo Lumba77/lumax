@@ -210,6 +210,7 @@ adb -s $targetDevice reverse --remove-all
 adb -s $targetDevice reverse tcp:8000 tcp:8000
 adb -s $targetDevice reverse tcp:8001 tcp:8001
 adb -s $targetDevice reverse tcp:8002 tcp:8002
+adb -s $targetDevice reverse tcp:8003 tcp:8003
 adb -s $targetDevice reverse tcp:8004 tcp:8004
 adb -s $targetDevice reverse tcp:8005 tcp:8005
 adb -s $targetDevice reverse tcp:8006 tcp:8006

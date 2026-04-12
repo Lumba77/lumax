@@ -34,7 +34,8 @@ adb -s $DEVICE_ID reverse --remove-all
 adb -s $DEVICE_ID reverse tcp:8000 tcp:8000 # Soul
 adb -s $DEVICE_ID reverse tcp:8001 tcp:8001 # Ears
 adb -s $DEVICE_ID reverse tcp:8002 tcp:8002 # Mouth
-adb -s $DEVICE_ID reverse tcp:8004 tcp:8004 # Creativity
+adb -s $DEVICE_ID reverse tcp:8003 tcp:8003 # Creativity /dream
+adb -s $DEVICE_ID reverse tcp:8004 tcp:8004 # Chatterbox TTS UI
 adb -s $DEVICE_ID reverse tcp:8005 tcp:8005 # Turbo TTS
 adb -s $DEVICE_ID reverse tcp:8006 tcp:8006 # Sentry
 adb -s $DEVICE_ID reverse tcp:8020 tcp:8020 # Optional legacy XTTS (not lumax_turbochat)

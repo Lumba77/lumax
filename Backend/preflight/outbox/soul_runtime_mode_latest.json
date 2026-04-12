@@ -1,7 +1,7 @@
 {
-  "timestamp_utc": "2026-04-09T05:38:55.649964+00:00",
-  "ok": false,
-  "supports_gpu_offload": null,
+  "timestamp_utc": "2026-04-12T04:36:18.067951+00:00",
+  "ok": true,
+  "supports_gpu_offload": true,
   "container": "lumax_soul",
-  "error": "probe exception: [Errno 2] No such file or directory: 'docker'"
+  "error": ""
 }

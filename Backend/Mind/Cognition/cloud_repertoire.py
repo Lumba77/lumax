@@ -14,10 +14,12 @@ import json
 import logging
 import os
 import random
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+
+import genai_daily_budget
 
 logger = logging.getLogger("cloud_repertoire")
 
@@ -112,6 +114,9 @@ def eligible_cloud_slot_ids() -> List[str]:
 def _read_slot(prefix: str) -> Tuple[str, str, str, str]:
     key = os.getenv(f"LUMAX_REPERTOIRE_{prefix}_API_KEY", "").strip()
     model = os.getenv(f"LUMAX_REPERTOIRE_{prefix}_MODEL", "").strip()
+    if prefix == "GEMINI" and not model:
+        # Default Flash — typically better quota/cost than Pro; set LUMAX_REPERTOIRE_GEMINI_MODEL if Google renames IDs.
+        model = "gemini-3.1-flash"
     base = os.getenv(f"LUMAX_REPERTOIRE_{prefix}_BASE_URL", "").strip()
     if not base:
         base = _DEFAULT_BASE.get(prefix, "")
@@ -144,6 +149,21 @@ def configured_slots_public() -> List[Dict[str, str]]:
             }
         )
     return out
+
+
+def genai_budget_sensory_line() -> str:
+    """Short line for soul system context when LUMAX_CLOUD_GENAI_DAILY_MAX > 0 (Her-like scarcity)."""
+    snap = genai_daily_budget.usage_snapshot()
+    cap = int(snap.get("daily_cap") or 0)
+    if cap <= 0:
+        return ""
+    used = int(snap.get("used_today_utc") or 0)
+    rem = snap.get("remaining")
+    rem_s = "unknown" if rem is None else str(rem)
+    return (
+        f"Cloud GenAI budget (UTC day): {used} of {cap} paid completions used; {rem_s} remaining. "
+        "Each cloud call is precious — default to local mind unless this moment truly needs the remote model."
+    )
 
 
 def repertoire_sensory_text() -> str:
@@ -278,7 +298,14 @@ async def openai_compatible_chat(
         try:
             r.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error("cloud_repertoire: HTTP %s %s", r.status_code, r.text[:500])
+            snippet = (r.text or "").replace("\n", " ")[:400]
+            if r.status_code == 429:
+                logger.warning(
+                    "cloud_repertoire: HTTP 429 (quota/rate limit) — %s",
+                    snippet,
+                )
+            else:
+                logger.error("cloud_repertoire: HTTP %s %s", r.status_code, snippet)
             raise
         data = r.json()
     choices = data.get("choices") or []
@@ -288,12 +315,104 @@ async def openai_compatible_chat(
     return (msg.get("content") or "").strip()
 
 
+def openai_compatible_chat_sync(
+    base_url: str,
+    api_key: str,
+    model: str,
+    system_text: str,
+    user_text: str,
+    *,
+    max_tokens: Optional[int] = None,
+) -> str:
+    """Synchronous /v1/chat/completions (for sentry / preflight without asyncio)."""
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    mt = max_tokens if max_tokens is not None else int(os.getenv("LUMAX_CLOUD_MAX_TOKENS", "1024") or "1024")
+    mt = max(64, min(mt, 8192))
+    messages: List[Dict[str, Any]] = []
+    st = (system_text or "").strip()
+    if st:
+        messages.append({"role": "system", "content": st})
+    messages.append({"role": "user", "content": user_text})
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": float(os.getenv("LUMAX_CLOUD_TEMPERATURE", "0.7") or "0.7"),
+        "max_tokens": mt,
+    }
+    timeout = float(os.getenv("LUMAX_CLOUD_HTTP_TIMEOUT", "120") or "120")
+    with httpx.Client(timeout=timeout) as client:
+        r = client.post(url, headers=headers, json=payload)
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            snippet = (r.text or "").replace("\n", " ")[:400]
+            if r.status_code == 429:
+                logger.warning("cloud_repertoire: sync HTTP 429 — %s", snippet)
+            else:
+                logger.error("cloud_repertoire: sync HTTP %s %s", r.status_code, snippet)
+            raise
+        data = r.json()
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    msg = choices[0].get("message") or {}
+    return (msg.get("content") or "").strip()
+
+
+def generate_via_slot_sync(
+    public_slot_id: str,
+    system_text: str,
+    user_text: str,
+    *,
+    max_tokens: Optional[int] = None,
+) -> str:
+    """Same contract as generate_via_slot but blocking HTTP (sentry / agentic_solver)."""
+    if not genai_daily_budget.allows():
+        logger.info(
+            "cloud_repertoire: global GenAI daily budget exhausted (%s) — skipping sync cloud call",
+            genai_daily_budget.usage_snapshot(),
+        )
+        return ""
+    prefix = _env_prefix_for_public_id(public_slot_id)
+    if not prefix:
+        raise ValueError(f"unknown slot {public_slot_id}")
+    cred = slot_credentials(prefix)
+    if not cred:
+        raise ValueError(f"slot {public_slot_id} not configured")
+    base_url, api_key, model, _label = cred
+    max_toks = max_tokens
+    if max_toks is None and prefix == "OPENAI":
+        ot = os.getenv("LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS", "").strip()
+        if ot.isdigit():
+            max_toks = int(ot)
+    out = openai_compatible_chat_sync(
+        base_url,
+        api_key,
+        model,
+        system_text,
+        user_text,
+        max_tokens=max_toks,
+    )
+    if (out or "").strip():
+        genai_daily_budget.record_success(1)
+    if prefix == "OPENAI" and (out or "").strip():
+        openai_budget_record_successful_request()
+    return out
+
+
 async def generate_via_slot(
     public_slot_id: str,
     system_text: str,
     user_text: str,
     image_base64: Optional[str] = None,
 ) -> str:
+    if not genai_daily_budget.allows():
+        logger.info(
+            "cloud_repertoire: global GenAI daily budget exhausted (%s) — skipping cloud slot",
+            genai_daily_budget.usage_snapshot(),
+        )
+        return ""
     prefix = _env_prefix_for_public_id(public_slot_id)
     if not prefix:
         raise ValueError(f"unknown slot {public_slot_id}")
@@ -315,6 +434,8 @@ async def generate_via_slot(
         image_base64=image_base64,
         max_tokens=max_toks,
     )
+    if (out or "").strip():
+        genai_daily_budget.record_success(1)
     if prefix == "OPENAI" and (out or "").strip():
         openai_budget_record_successful_request()
     return out

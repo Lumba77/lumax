@@ -1,9 +1,11 @@
+import importlib.util
 import json
 import logging
 import os
+import random
 import subprocess
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -11,6 +13,96 @@ from preflight.json_util import load_playbook_path
 
 
 logger = logging.getLogger("AgenticSolver")
+
+_cloud_repertoire_mod: Any = None
+
+
+def _get_cloud_repertoire() -> Any:
+    """Load Mind/Cognition/cloud_repertoire.py without package imports (sentry cwd is Backend/)."""
+    global _cloud_repertoire_mod
+    if _cloud_repertoire_mod is not None:
+        return _cloud_repertoire_mod
+    path = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "Mind", "Cognition", "cloud_repertoire.py")
+    )
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"cloud_repertoire not found at {path}")
+    spec = importlib.util.spec_from_file_location("lumax_cloud_repertoire_sentry", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cloud_repertoire import spec invalid")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _cloud_repertoire_mod = mod
+    return mod
+
+
+def _sentry_repertoire_max_tokens() -> int:
+    try:
+        return max(128, min(4096, int(os.getenv("LUMAX_SENTRY_REPERTOIRE_MAX_TOKENS", "768") or "768")))
+    except ValueError:
+        return 768
+
+
+def _resolve_sentry_repertoire_slot(cr: Any) -> Optional[str]:
+    """
+    Which cloud slot the sentry uses: openai | gemini | extra | rotate | auto.
+    auto|rotate pick from eligible_cloud_slot_ids() (respects OpenAI daily cap when configured).
+    """
+    raw = os.getenv("LUMAX_SENTRY_REPERTOIRE_SLOT", "gemini").strip().lower()
+    slots: List[str] = list(cr.eligible_cloud_slot_ids())
+    if not slots:
+        return None
+    if raw in ("openai", "gemini", "extra"):
+        if raw not in slots:
+            logger.warning(
+                "Sentry repertoire: slot %r unavailable (not configured or cap); using %r",
+                raw,
+                slots[0],
+            )
+            return slots[0]
+        return raw
+    if raw in ("rotate", "auto"):
+        return random.choice(slots)
+    logger.warning("Unknown LUMAX_SENTRY_REPERTOIRE_SLOT=%r — using %r", raw, slots[0])
+    return slots[0]
+
+
+def _solve_with_repertoire_cloud(prompt: str) -> Dict:
+    """OpenAI-compatible cloud (same .env slots as Jen / cloud_repertoire)."""
+    try:
+        cr = _get_cloud_repertoire()
+    except Exception as e:
+        logger.warning("Sentry could not load cloud_repertoire: %s", e)
+        return {"actions": ["none"], "reason": f"repertoire-import:{e}"}
+    slot = _resolve_sentry_repertoire_slot(cr)
+    if not slot:
+        return {"actions": ["none"], "reason": "repertoire-no-slots"}
+    system = (
+        "You are a JSON-only API. Output a single JSON object, no markdown, no commentary. "
+        "The user message contains the exact schema required."
+    )
+    mt = _sentry_repertoire_max_tokens()
+    try:
+        text = cr.generate_via_slot_sync(slot, system, prompt, max_tokens=mt)
+    except Exception as e:
+        logger.warning("Sentry repertoire HTTP error: %s", e)
+        return {"actions": ["none"], "reason": f"repertoire-http:{e}"}
+    return _parse_actions(text)
+
+
+def _solve_text_with_repertoire(prompt: str) -> str:
+    try:
+        cr = _get_cloud_repertoire()
+    except Exception as e:
+        return f"Repertoire solver unavailable: {e}"
+    slot = _resolve_sentry_repertoire_slot(cr)
+    if not slot:
+        return "No cloud API slots configured (set LUMAX_REPERTOIRE_* in .env for lumax_ops)."
+    mt = _sentry_repertoire_max_tokens()
+    try:
+        return str(cr.generate_via_slot_sync(slot, "", prompt, max_tokens=mt) or "").strip()
+    except Exception as e:
+        return f"Repertoire request failed: {e}"
 
 ALLOWED_ACTIONS = {
     "docker_compose_up",
@@ -406,6 +498,8 @@ def propose_actions(failures: Dict[str, bool], unstable_features: Optional[List[
     try:
         if mode == "command":
             out = _solve_with_command(prompt)
+        elif mode in ("repertoire", "cloud"):
+            out = _solve_with_repertoire_cloud(prompt)
         else:
             out = _solve_with_ollama(prompt)
         logger.debug("Agentic solver proposed actions=%s reason=%s", out.get("actions"), out.get("reason"))
@@ -431,6 +525,8 @@ def answer_runtime_question(question: str, context: Dict) -> str:
     try:
         if mode == "command":
             text = _solve_text_with_command(prompt)
+        elif mode in ("repertoire", "cloud"):
+            text = _solve_text_with_repertoire(prompt)
         else:
             text = _solve_text_with_ollama(prompt)
         txt = (text or "").strip()

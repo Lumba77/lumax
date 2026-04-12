@@ -817,6 +817,16 @@ When you return **live**, you may sense **residual growth** (intuition, mood, ph
                         "\n[CLOUD REPERTOIRE — REMOTE API SLOTS ON THIS DEPLOYMENT — NOT PROOF THEY RAN THIS TURN]:\n"
                         + cr
                     )
+            cloud_bud = sensory_context.get("cloud_genai_budget")
+            if cloud_bud:
+                cb = str(cloud_bud).strip()
+                if cb:
+                    if len(cb) > 1200:
+                        cb = cb[:1200] + "…"
+                    prompt += (
+                        "\n[CLOUD GENAI DAILY BUDGET — PAID REMOTE CALLS ARE LIMITED; LOCAL MIND IS DEFAULT]:\n"
+                        + cb
+                    )
         
         if instruction:
             prompt += f"\n\n[DIRECTIVE]: {instruction}"

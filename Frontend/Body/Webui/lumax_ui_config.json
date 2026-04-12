@@ -1,51 +1,77 @@
 {
   "version": 1,
   "global": {
-    "site_name": "Lumax",
+    "ready_message": "Connected. Lumax Web UI is ready.",
+    "site_name": "Lumax.se",
     "slogan": "Your everything for life.",
-    "ready_message": "Connected. Lumax Web UI is ready."
+    "jen_voice_id": "female_american1-lumba.wav",
+    "jen_tts_engine": "TURBO",
+    "jen_voice_note": "Use this voice id + engine for every shell (Web, Mobile, Desktop) when calling lumax_body POST /tts. VR: prefer soul-returned audio or the same mouth URL so Jen sounds like one person."
   },
   "web": {
-    "page_title": "Lumax — Your everything for life",
+    "page_title": "Lumax — 1um6a.se",
     "manifest_short_name": "Lumax",
     "auth_blurb": "Sign in once to unlock this console; your browser keeps the session until it expires or site data is cleared. Optional cloud features may ask you to sign in separately.",
     "auth_continue_button": "Continue",
     "consent_title": "Privacy",
     "consent_body": "Session and environment data may be used to improve your companion’s behavior. Treat sensitive inputs accordingly. You can stop using the UI at any time.",
-    "consent_button": "I understand",
+    "consent_button": "Sign in",
     "header_status_prefix": "Godot · VR ·",
     "footer_stack": "Stack: local + optional cloud",
     "nav_groups": {
-      "cognition": "Cognition",
-      "manifestation": "Manifestation",
-      "agency": "Agency",
-      "laboratory": "Laboratory",
-      "utilities": "Utilities"
+      "cognition": "MIND",
+      "manifestation": "CREATE",
+      "agency": "AGENCY",
+      "laboratory": "LAB",
+      "utilities": "TOOLS"
     },
     "nav_tabs": {
-      "SANCTUARY": "CHRONICLE",
-      "NEURAL": "ETHOS (PERSONA)",
-      "THOUGHTS": "LOGOS (COG)",
-      "IMAGINE": "DREAMSCAPE (ART)",
-      "VISION": "SPECTRAL VIEW",
-      "VESSEL": "VESSEL RIG",
-      "AGENCY": "AUTONOMOUS",
-      "SOCIAL": "MULTIVERSE",
-      "COWORK": "RATATOSK (CODE)",
-      "NUCLEUS": "NUCLEUS (DEBUG)",
-      "UTILS": "ANNOUNCE BOARD",
-      "BRANDING": "LABEL EDITOR"
+      "SANCTUARY": "News",
+      "NEURAL": "Personality",
+      "THOUGHTS": "Cognition",
+      "IMAGINE": "Images",
+      "VISION": "Spectral",
+      "VESSEL": "Avatar",
+      "AGENCY": "Free will",
+      "SOCIAL": "Multiplayer",
+      "COWORK": "Core model",
+      "NUCLEUS": "Debug",
+      "UTILS": "Announcments",
+      "CHATTERBOX": "Chatterbox",
+      "CHECKUP": "SYSTEM CHECK",
+      "BRANDING": "Site editor"
     },
-    "chat_placeholder": "Transmit thoughts to Jen...",
+    "chat_placeholder": "Feedback to Lumax",
     "utils_title": "Announcements",
     "utils_blurb": "Operational notices and reminders. Content is served from announcements.json next to the Web UI (editable on disk)."
   },
   "godot_vr": {
     "hubs": {
-      "MIND": ["PSYCHE", "SOUL", "BRAINS", "MEMORY", "EMOTIONS"],
-      "BODY": ["VESSEL", "AGENCY", "VITALS"],
-      "MANIFEST": ["IMAGEN", "VIDGEN", "MEDIA"],
-      "CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "FILES"]
+      "MIND": [
+        "PSYCHE",
+        "SOUL",
+        "BRAINS",
+        "MEMORY",
+        "EMOTIONS"
+      ],
+      "BODY": [
+        "VESSEL",
+        "AGENCY",
+        "VITALS"
+      ],
+      "MANIFEST": [
+        "IMAGEN",
+        "VIDGEN",
+        "MEDIA"
+      ],
+      "CORE": [
+        "CHAT",
+        "LOGS",
+        "SETTINGS",
+        "SYSTEM",
+        "CHATTERBOX",
+        "FILES"
+      ]
     },
     "ribbon_labels": {
       "MIND": "MIND",
@@ -57,7 +83,8 @@
   },
   "mobile": {
     "labels": {},
-    "nav": {}
+    "nav": {},
+    "bridge_note": "React app under Frontend/Body/Mobile/Version1 — same lumax_ops :8080 session + /api/* as Web UI; see that folder README for Vite proxy and Capacitor."
   },
   "desktop": {
     "labels": {},

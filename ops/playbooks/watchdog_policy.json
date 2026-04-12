@@ -18,10 +18,12 @@
     "restart_service_soul",
     "restart_service_body",
     "restart_service_turbo",
+//    "restart_service_ops",
     "rebuild_service_soul",
     "request_architecture_plan"
   ],
   "notes": [
+    "Playbooks loaded via load_playbook_path() use JSON5 when the json5 package is installed — you may use // line comments in this file (stdlib json alone does not allow them).",
     "Set allow_service_restart=true only when restart loops are controlled.",
     "restart_service_ops restarts the Web UI + sentry container (requires Docker socket on lumax_ops).",
     "Keep approval_required_actions strict for safety while still allowing inspection freedom.",

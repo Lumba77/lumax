@@ -1,4 +1,6 @@
 # Requires: docker compose build lumax_soul   (creates lumax_unified:latest) before building this image.
+# Chatterbox API server image (lumax_turbochat:latest): XTTS v2 primary; extensible to other TTS providers in the suite.
+# Former image/container name: lumax_chatterbox_turbo (renamed shorter → turbochat).
 FROM lumax_unified:latest
 
 WORKDIR /app

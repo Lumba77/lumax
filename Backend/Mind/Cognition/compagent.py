@@ -19,6 +19,7 @@ from lumax_engine import LumaxEngine
 from fastapi.middleware.cors import CORSMiddleware
 from slow_burn import execute_slow_burn_tick
 import cloud_repertoire
+import genai_daily_budget
 from ollama_http import ollama_http_headers
 from PIL import Image
 
@@ -77,7 +78,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 TTS_SERVICE_URL = os.getenv("TTS_SERVICE_URL", "http://lumax_mouth:8002/tts")
 TTS_ENGINE = os.getenv("TTS_ENGINE", "TURBO")
 STT_SERVICE_URL = os.getenv("STT_SERVICE_URL", "http://lumax_ears:8001/stt")
-CREATIVE_SERVICE_URL = os.getenv("CREATIVE_SERVICE_URL", "http://lumax_creativity:8004")
+CREATIVE_SERVICE_URL = os.getenv("CREATIVE_SERVICE_URL", "http://lumax_creativity:8003")
 
 NIGHT_SLEEP_TRIGGER = "[SYSTEM: NIGHT_SLEEP_CYCLE]"
 LUMAX_INTERNAL_SECRET = os.getenv("LUMAX_INTERNAL_SECRET", "").strip()
@@ -354,6 +355,20 @@ async def _generate_soul_text(
             )
             if (out or "").strip():
                 return out.strip(), f"cloud:{slot}"
+        except httpx.HTTPStatusError as e:
+            sc = e.response.status_code if e.response is not None else 0
+            if sc == 429:
+                logger.warning(
+                    "Soul: cloud slot %s returned HTTP 429 (quota/rate limit); using local",
+                    slot,
+                )
+            else:
+                logger.error(
+                    "Soul: cloud slot %s failed, falling back to local: %s",
+                    slot,
+                    e,
+                    exc_info=True,
+                )
         except Exception as e:
             logger.error("Soul: cloud slot %s failed, falling back to local: %s", slot, e, exc_info=True)
 
@@ -791,6 +806,7 @@ async def get_vitals():
         "cloud_repertoire_slots": [s["id"] for s in cloud_repertoire.configured_slots_public()],
         "LUMAX_CHAT_PROVIDER": os.getenv("LUMAX_CHAT_PROVIDER", "local"),
         "LUMAX_CLOUD_SPLICE_PERCENT": int(os.getenv("LUMAX_CLOUD_SPLICE_PERCENT", "0") or "0"),
+        "cloud_genai_budget": genai_daily_budget.usage_snapshot(),
     }
 
 @app.get("/personality_presets")
@@ -800,6 +816,12 @@ async def get_personality_presets():
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"error": "Presets not found"}
+
+@app.get("/soul_dna")
+async def get_soul_dna():
+    """Current trait vector for Web UI / Godot sliders (same keys as POST /update_soul)."""
+    return {"dna": dict(_current_soul_dna)}
+
 
 @app.post("/update_soul")
 async def handle_update_soul(req: UpdateSoulRequest):
@@ -1332,6 +1354,9 @@ async def handle_compagent_request(request: CompagentRequest):
         rep_txt = cloud_repertoire.repertoire_sensory_text()
         if rep_txt:
             sensory_ctx["cloud_repertoire"] = rep_txt
+        budget_line = cloud_repertoire.genai_budget_sensory_line()
+        if budget_line:
+            sensory_ctx["cloud_genai_budget"] = budget_line
 
         full_system_prompt = MindCore.build_system_prompt(
             vessel=request.vessel,
@@ -1365,7 +1390,13 @@ async def handle_compagent_request(request: CompagentRequest):
             if proc_cpu >= SOFT_CPU_HOT_PCT and not request.deep_think:
                 local_max_tokens = max(128, SOFT_LOCAL_MAX_TOKENS_HOT)
             if not cr_override and cloud_repertoire.configured_slots_public():
-                if prompt_est_tokens >= max(2000, SOFT_FORCE_CLOUD_PROMPT_TOKENS):
+                if not genai_daily_budget.allows():
+                    governor_info["cloud_genai_budget_exhausted"] = True
+                    logger.info(
+                        "Governor: skipping auto-cloud (global GenAI daily budget exhausted): %s",
+                        genai_daily_budget.usage_snapshot(),
+                    )
+                elif prompt_est_tokens >= max(2000, SOFT_FORCE_CLOUD_PROMPT_TOKENS):
                     cr_override = "rotate"
                     governor_info["auto_cloud"] = True
                     logger.warning(

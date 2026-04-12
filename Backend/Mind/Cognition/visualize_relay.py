@@ -4,7 +4,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-URL = "http://localhost:8004/api/dream"
+URL = "http://localhost:8003/api/dream"
 
 # ── 1. DRAW THE RELAY TOPOLOGY (CANNY TEMPLATE) ──────────────────────────────
 def create_relay_template():

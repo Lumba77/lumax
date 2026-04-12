@@ -25,3 +25,6 @@ __pycache__/
 
 # Nested .env (root `.env` rules do not always apply to subdirs in all Git versions)
 **/.env
+
+# Cloned upstream (see scripts/bootstrap_chatterbox_resemble.ps1)
+tools/Chatterbox-TTS-Server/

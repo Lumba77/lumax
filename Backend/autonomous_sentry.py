@@ -85,12 +85,23 @@ def _service_health_urls() -> dict[str, str]:
     ears_base = os.getenv("EARS_URL", "http://lumax_body:8001").strip().rstrip("/")
     mouth_base = os.getenv("MOUTH_URL", os.getenv("LUMAX_MOUTH_URL", "http://lumax_body:8002")).strip().rstrip("/")
     turbo_base = os.getenv("TURBO_URL", os.getenv("LUMAX_TURBO_URL", "http://lumax_turbochat:8005")).strip().rstrip("/")
+    creative_base = os.getenv(
+        "CREATIVE_SERVICE_URL",
+        "http://lumax_creativity:8003",
+    ).strip().rstrip("/")
     urls: dict[str, str] = {
         "SOUL": os.getenv("LUMAX_SENTRY_SOUL_HEALTH_URL", f"{soul_base}/health"),
         "EARS": os.getenv("LUMAX_SENTRY_EARS_HEALTH_URL", f"{ears_base}/health"),
         "MOUTH": os.getenv("LUMAX_SENTRY_MOUTH_HEALTH_URL", f"{mouth_base}/health"),
         "TURBO": os.getenv("LUMAX_SENTRY_TURBO_HEALTH_URL", f"{turbo_base}/health"),
     }
+    # Creativity (dream) on :8003 — lumax_embers does not publish host ports; conflict on 8003 is never from embers.
+    if _bool_env("LUMAX_SENTRY_CHECK_CREATIVITY", True):
+        cu = os.getenv("LUMAX_SENTRY_CREATIVITY_HEALTH_URL", "").strip()
+        if cu:
+            urls["CREATIVE"] = cu
+        elif creative_base:
+            urls["CREATIVE"] = f"{creative_base}/health"
     # Same container as uvicorn (127.0.0.1); detects dead Web UI while sentry still runs.
     if _bool_env("LUMAX_SENTRY_CHECK_WEBUI", True):
         wu = os.getenv("LUMAX_SENTRY_WEBUI_HEALTH_URL", "http://127.0.0.1:8080/health").strip()
@@ -263,7 +274,7 @@ def _speak_watchdog_answer(question: str, answer: str) -> None:
     if not _bool_env("LUMAX_SENTRY_SPEAK_ANSWERS", False):
         return
     tts_url = os.getenv("LUMAX_SENTRY_TTS_URL", "http://lumax_body:8002/tts").strip()
-    voice = os.getenv("LUMAX_SENTRY_TTS_VOICE", "female").strip()
+    voice = os.getenv("LUMAX_SENTRY_TTS_VOICE", "female_american1-lumba").strip()
     engine = os.getenv("LUMAX_SENTRY_TTS_ENGINE", "TURBO").strip()
     max_chars = int(os.getenv("LUMAX_SENTRY_TTS_MAX_CHARS", "320"))
     # Keep spoken output short and useful.
@@ -525,7 +536,7 @@ def establish_neural_bridge():
         return
     logger.debug("--- Sovereign Bridge: Heartbeat (ADB Tunnels) ---")
     # All essential ports for Jen's Manifestation and Brain connectivity (match connect_quest.ps1 / push_all.ps1)
-    ports = [8000, 8001, 8002, 8004, 8005, 8006, 8020, 8080, 6006, 6007, 6379]
+    ports = [8000, 8001, 8002, 8003, 8004, 8005, 8006, 8020, 8080, 6006, 6007, 6379]
 
     # Verify we can even reach the host ADB server first
     try:
