@@ -28,3 +28,17 @@ __pycache__/
 
 # Cloned upstream (see scripts/bootstrap_chatterbox_resemble.ps1)
 tools/Chatterbox-TTS-Server/
+
+# Home Assistant runtime (never commit machine state, DB, or long-lived tokens)
+Backend/HomeAssistant/.storage/
+Backend/HomeAssistant/secrets.yaml
+Backend/HomeAssistant/home-assistant_v2.db
+Backend/HomeAssistant/home-assistant_v2.db-shm
+Backend/HomeAssistant/home-assistant_v2.db-wal
+Backend/HomeAssistant/home-assistant.log
+Backend/HomeAssistant/home-assistant.log.*
+Backend/HomeAssistant/home-assistant.log.fault
+Backend/HomeAssistant/.ha_run.lock
+
+# Tailscale node state (keys / DERP map cache)
+Backend/tailscale/state/
