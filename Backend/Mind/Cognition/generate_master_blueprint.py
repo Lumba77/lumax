@@ -4,7 +4,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-URL = "http://localhost:8004/api/dream"
+URL = "http://localhost:8003/api/dream"
 
 # ── 1. DRAW THE STRUCTURAL TRUTH (CANNY TEMPLATE) ────────────────────────────
 def create_schematic_template():

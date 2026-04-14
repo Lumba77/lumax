@@ -19,6 +19,7 @@ from lumax_engine import LumaxEngine
 from fastapi.middleware.cors import CORSMiddleware
 from slow_burn import execute_slow_burn_tick
 import cloud_repertoire
+import genai_daily_budget
 from ollama_http import ollama_http_headers
 from PIL import Image
 
@@ -77,7 +78,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 TTS_SERVICE_URL = os.getenv("TTS_SERVICE_URL", "http://lumax_mouth:8002/tts")
 TTS_ENGINE = os.getenv("TTS_ENGINE", "TURBO")
 STT_SERVICE_URL = os.getenv("STT_SERVICE_URL", "http://lumax_ears:8001/stt")
-CREATIVE_SERVICE_URL = os.getenv("CREATIVE_SERVICE_URL", "http://lumax_creativity:8004")
+CREATIVE_SERVICE_URL = os.getenv("CREATIVE_SERVICE_URL", "http://lumax_creativity:8003")
 
 NIGHT_SLEEP_TRIGGER = "[SYSTEM: NIGHT_SLEEP_CYCLE]"
 LUMAX_INTERNAL_SECRET = os.getenv("LUMAX_INTERNAL_SECRET", "").strip()
@@ -117,6 +118,11 @@ SOFT_PROMPT_TOKENS_HIGH = int(os.getenv("LUMAX_SOFT_PROMPT_TOKENS_HIGH", "12000"
 SOFT_FORCE_CLOUD_PROMPT_TOKENS = int(os.getenv("LUMAX_SOFT_FORCE_CLOUD_PROMPT_TOKENS", "20000"))
 SOFT_LOCAL_MAX_TOKENS_NORMAL = int(os.getenv("LUMAX_SOFT_LOCAL_MAX_TOKENS_NORMAL", "768"))
 SOFT_LOCAL_MAX_TOKENS_HOT = int(os.getenv("LUMAX_SOFT_LOCAL_MAX_TOKENS_HOT", "320"))
+SOFT_LOCAL_MAX_TOKENS_DEEP = int(os.getenv("LUMAX_SOFT_LOCAL_MAX_TOKENS_DEEP", "2048"))
+MEMORY_TOP_K_HOT = int(os.getenv("LUMAX_MEMORY_TOP_K_HOT", "3"))
+MEMORY_TOP_K_DEEP = int(os.getenv("LUMAX_MEMORY_TOP_K_DEEP", "12"))
+MEMORY_LORE_TOP_K_HOT = int(os.getenv("LUMAX_MEMORY_LORE_TOP_K_HOT", "1"))
+MEMORY_LORE_TOP_K_DEEP = int(os.getenv("LUMAX_MEMORY_LORE_TOP_K_DEEP", "4"))
 LOCAL_VISION_ENABLED = _env_bool("LUMAX_LOCAL_VISION_ENABLED", True)
 # Preferred: ONNX bundle from export_tiny_vision_onnx.py (English Swin-tiny + DistilGPT2):
 # https://huggingface.co/yesidcanoc/image-captioning-swin-tiny-distilgpt2
@@ -349,6 +355,20 @@ async def _generate_soul_text(
             )
             if (out or "").strip():
                 return out.strip(), f"cloud:{slot}"
+        except httpx.HTTPStatusError as e:
+            sc = e.response.status_code if e.response is not None else 0
+            if sc == 429:
+                logger.warning(
+                    "Soul: cloud slot %s returned HTTP 429 (quota/rate limit); using local",
+                    slot,
+                )
+            else:
+                logger.error(
+                    "Soul: cloud slot %s failed, falling back to local: %s",
+                    slot,
+                    e,
+                    exc_info=True,
+                )
         except Exception as e:
             logger.error("Soul: cloud slot %s failed, falling back to local: %s", slot, e, exc_info=True)
 
@@ -357,6 +377,55 @@ async def _generate_soul_text(
         full_prompt, image_base64=_engine_raw_image_b64(active_images), max_tokens=local_max_tokens
     )
     return raw, engine.engine_type
+
+
+async def _refresh_session_summary_background(session_id: str) -> None:
+    """Slow path: compress recent transcript + prior spine into Redis (fire-and-forget)."""
+    if _env_bool("LUMAX_SESSION_SUMMARY_DISABLE", False):
+        return
+    global redis_memory
+    try:
+        rm = redis_memory
+        if rm is None:
+            return
+        old = rm.get_session_summary(session_id)
+        hist = await rm.get_session_history(session_id)
+        lines: List[str] = []
+        for m in hist.messages[-16:]:
+            if m.role not in ("user", "ai"):
+                continue
+            role = "Daniel" if m.role == "user" else "Jen"
+            lines.append(f"{role}: {(m.content or '')[:2500]}")
+        if not lines:
+            return
+        body = "\n".join(lines)
+        prompt = (
+            "Compress the following dialogue into a persistent rolling summary (max ~700 words). "
+            "Capture: themes, emotional tone, open threads, commitments, concrete facts. "
+            "Neutral third-person or concise list; no roleplay.\n\n"
+            f"Prior summary (may be empty):\n{old[:4500]}\n\nRecent dialogue:\n{body}\n\nNew summary:"
+        )
+        _oh = ollama_http_headers()
+        predict = int(os.getenv("LUMAX_SESSION_SUMMARY_NUM_PREDICT", "640"))
+        async with httpx.AsyncClient(timeout=120.0) as hc:
+            resp = await hc.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": SMOLLM_HELPER_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": predict},
+                },
+                headers=_oh,
+            )
+        if resp.status_code != 200:
+            logger.warning("Session summary: Ollama HTTP %s", resp.status_code)
+            return
+        raw = (resp.json().get("response") or "").strip()
+        if raw:
+            rm.set_session_summary(session_id, raw)
+    except Exception as e:
+        logger.warning("Session summary refresh failed: %s", e)
 
 
 app = FastAPI(title="Lumax Mind Core")
@@ -569,6 +638,8 @@ class CompagentRequest(BaseModel):
     lore_context: Optional[str] = None
     ## Optional: remote slot routing — openai | gemini | extra | local | rotate | splice (splice uses LUMAX_CLOUD_SPLICE_PERCENT).
     cloud_routing: Optional[str] = None
+    ## Slow path: richer vector retrieval + higher decode budget (web / background); VR hot path keeps default false.
+    deep_think: bool = False
 
 class UpdateSoulRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
@@ -735,6 +806,7 @@ async def get_vitals():
         "cloud_repertoire_slots": [s["id"] for s in cloud_repertoire.configured_slots_public()],
         "LUMAX_CHAT_PROVIDER": os.getenv("LUMAX_CHAT_PROVIDER", "local"),
         "LUMAX_CLOUD_SPLICE_PERCENT": int(os.getenv("LUMAX_CLOUD_SPLICE_PERCENT", "0") or "0"),
+        "cloud_genai_budget": genai_daily_budget.usage_snapshot(),
     }
 
 @app.get("/personality_presets")
@@ -744,6 +816,12 @@ async def get_personality_presets():
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"error": "Presets not found"}
+
+@app.get("/soul_dna")
+async def get_soul_dna():
+    """Current trait vector for Web UI / Godot sliders (same keys as POST /update_soul)."""
+    return {"dna": dict(_current_soul_dna)}
+
 
 @app.post("/update_soul")
 async def handle_update_soul(req: UpdateSoulRequest):
@@ -1094,19 +1172,9 @@ async def handle_compagent_request(request: CompagentRequest):
     if raw_in:
         _bump_user_activity()
 
-    # ... (Wait for VRAM LOCK if local)
-
-    history_str = ""
-    # 1. Retrieve Memories
-    mems = []
-    if vector_memory:
-        mems = await vector_memory.retrieve_memories(request.session_id, request.input)
-    
-    mem_context = "\n".join([m['text'] for m in mems])
-    
-    # 2. Dual-Cortex Routing
-    full_prompt = f"{get_veiled_prompt(request)}\n\n[MEMORIES]\n{mem_context}\n\nUser: {request.input}\nRatatosk (transcribing for Jen):"
     session_id = request.session_id or "default_user"
+    history_str = ""
+    session_summary_text = ""
 
     # 0. Quick check for empty input to prevent repetitive "thinking" phrases
     if not request.input or request.input.strip() == "":
@@ -1190,6 +1258,8 @@ async def handle_compagent_request(request: CompagentRequest):
         if redis_memory is None: redis_memory = RedisMemory(host=REDIS_HOST, port=REDIS_PORT)
         if vector_memory is None: vector_memory = VectorMemory(ollama_host=OLLAMA_HOST, embed_model=OLLAMA_EMBED_MODEL)
         
+        session_summary_text = redis_memory.get_session_summary(session_id)
+
         # A. SHORT-TERM: Recent Conversation
         chat_history = await redis_memory.get_session_history(session_id)
         for msg in chat_history.messages[-8:]:
@@ -1197,8 +1267,13 @@ async def handle_compagent_request(request: CompagentRequest):
             history_str += f"{role}: {msg.content}\n"
         history_str += f"Daniel: {request.input}\n"
         
-        # B. LONG-TERM (Interrelational): Retrieve similar past experiences
-        relevant_mems = await vector_memory.retrieve_memories(session_id, request.input, n_results=3)
+        # B. LONG-TERM (Interrelational): tight top-k on hot path; deep_think widens retrieval (slow path).
+        deep = bool(request.deep_think)
+        nk = MEMORY_TOP_K_DEEP if deep else MEMORY_TOP_K_HOT
+        lk = MEMORY_LORE_TOP_K_DEEP if deep else MEMORY_LORE_TOP_K_HOT
+        relevant_mems = await vector_memory.retrieve_memories(
+            session_id, request.input, n_results=nk, lore_n_results=lk
+        )
         if relevant_mems:
             memory_context = "\n[RELEVANT_INTERRELATIONAL_CONTEXT]:\n"
             for mem in relevant_mems:
@@ -1221,6 +1296,9 @@ async def handle_compagent_request(request: CompagentRequest):
                     + vision_text
                 )
         sensory_ctx: Dict[str, Any] = {"visuals": visuals_for_prompt, "acoustics": body_metrics}
+        if session_summary_text:
+            inj = int(os.getenv("LUMAX_SESSION_SUMMARY_INJECT_MAX_CHARS", "4000"))
+            sensory_ctx["session_summary"] = session_summary_text[:inj]
         if spatial_map:
             sensory_ctx["spatial_map"] = spatial_map
         mcp_blob = (request.mcp_context or "").strip()
@@ -1276,6 +1354,9 @@ async def handle_compagent_request(request: CompagentRequest):
         rep_txt = cloud_repertoire.repertoire_sensory_text()
         if rep_txt:
             sensory_ctx["cloud_repertoire"] = rep_txt
+        budget_line = cloud_repertoire.genai_budget_sensory_line()
+        if budget_line:
+            sensory_ctx["cloud_genai_budget"] = budget_line
 
         full_system_prompt = MindCore.build_system_prompt(
             vessel=request.vessel,
@@ -1290,7 +1371,10 @@ async def handle_compagent_request(request: CompagentRequest):
             full_system_prompt += memory_context
 
         cr_override = (request.cloud_routing or "").strip() or None
-        local_max_tokens = SOFT_LOCAL_MAX_TOKENS_NORMAL
+        if request.deep_think:
+            local_max_tokens = SOFT_LOCAL_MAX_TOKENS_DEEP
+        else:
+            local_max_tokens = SOFT_LOCAL_MAX_TOKENS_NORMAL
         governor_info: Dict[str, Any] = {
             "enabled": SOFT_GOV_ENABLED,
             "auto_cloud": False,
@@ -1303,10 +1387,16 @@ async def handle_compagent_request(request: CompagentRequest):
             proc_cpu = _sample_proc_cpu_pct()
             governor_info["prompt_est_tokens"] = prompt_est_tokens
             governor_info["proc_cpu_pct"] = round(proc_cpu, 1)
-            if proc_cpu >= SOFT_CPU_HOT_PCT:
+            if proc_cpu >= SOFT_CPU_HOT_PCT and not request.deep_think:
                 local_max_tokens = max(128, SOFT_LOCAL_MAX_TOKENS_HOT)
             if not cr_override and cloud_repertoire.configured_slots_public():
-                if prompt_est_tokens >= max(2000, SOFT_FORCE_CLOUD_PROMPT_TOKENS):
+                if not genai_daily_budget.allows():
+                    governor_info["cloud_genai_budget_exhausted"] = True
+                    logger.info(
+                        "Governor: skipping auto-cloud (global GenAI daily budget exhausted): %s",
+                        genai_daily_budget.usage_snapshot(),
+                    )
+                elif prompt_est_tokens >= max(2000, SOFT_FORCE_CLOUD_PROMPT_TOKENS):
                     cr_override = "rotate"
                     governor_info["auto_cloud"] = True
                     logger.warning(
@@ -1373,6 +1463,14 @@ async def handle_compagent_request(request: CompagentRequest):
             if active_images:
                 for ib64 in active_images[:2]:
                     await redis_memory.push_reference_image(session_id, ib64)
+            try:
+                full_hist = await redis_memory.get_session_history(session_id)
+                user_msgs = sum(1 for m in full_hist.messages if m.role == "user")
+                every_n = int(os.getenv("LUMAX_SESSION_SUMMARY_EVERY_N_USER_TURNS", "5"))
+                if every_n > 0 and user_msgs % every_n == 0:
+                    asyncio.create_task(_refresh_session_summary_background(session_id))
+            except Exception as ex:
+                logger.debug("Session summary schedule: %s", ex)
             
             if text.strip() != "":
                 try:
@@ -1398,6 +1496,7 @@ async def handle_compagent_request(request: CompagentRequest):
         "mode": engine.engine_type,
         "inference_backend": inference_backend,
         "vision_mode": vision_mode if 'vision_mode' in locals() else "none",
+        "cognitive_mode": "deep_think" if request.deep_think else "fast",
         "runtime_governor": governor_info if 'governor_info' in locals() else {"enabled": SOFT_GOV_ENABLED},
         "safety_alerts": safety_alerts,
     })

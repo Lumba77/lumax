@@ -102,6 +102,38 @@ class RedisMemory:
         messages.append({"role": role, "content": content})
         self.set(f"session:{session_id}", json.dumps(messages))
 
+    def get_session_summary(self, session_id: str) -> str:
+        """Rolling dialogue spine (compressed summary), persisted per session."""
+        raw = self.get(f"session_summary:{session_id}")
+        return (raw or "").strip()
+
+    def set_session_summary(self, session_id: str, text: str) -> None:
+        """Persist summary with a long TTL (default 7d); separate from chat transcript keys."""
+        ttl = int(os.getenv("LUMAX_SESSION_SUMMARY_TTL_SEC", "604800"))
+        key = f"session_summary:{session_id}"
+        text = (text or "").strip()
+        if not text:
+            return
+        max_chars = int(os.getenv("LUMAX_SESSION_SUMMARY_STORE_MAX_CHARS", "16000"))
+        if len(text) > max_chars:
+            text = text[:max_chars] + "…"
+        if self.use_redis:
+            try:
+                self.redis_client.setex(key, ttl, text)
+                return
+            except Exception as e:
+                print(f"Redis set_session_summary error: {e}. Falling back to local.")
+        try:
+            data = {}
+            if os.path.exists(self.local_fallback_path):
+                with open(self.local_fallback_path, "r") as f:
+                    data = json.load(f)
+            data[key] = text
+            with open(self.local_fallback_path, "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            print(f"set_session_summary local fallback error: {e}")
+
     def _ref_redis_key(self, session_id: str) -> str:
         return f"lumax:ref_images:{session_id}"
 
@@ -244,11 +276,18 @@ class VectorMemory:
             print(f"Error adding memory: {e}")
 
     async def retrieve_memories(
-        self, session_id: str, query_text: str, n_results: int = 5, include_lore: bool = True
+        self,
+        session_id: str,
+        query_text: str,
+        n_results: int = 5,
+        include_lore: bool = True,
+        lore_n_results: int = 2,
     ) -> list[dict]:
         try:
             query_embedding = await self.generate_embedding(query_text)
             if not query_embedding: return []
+
+            lore_k = max(0, int(lore_n_results))
 
             # 1. Search Long-Term Experiences
             results = self.long_term.query(
@@ -264,10 +303,10 @@ class VectorMemory:
                     retrieved.append({"text": results["documents"][0][i], "layer": "long_term", "dist": results["distances"][0][i]})
 
             # 2. Search Refined Lore (Priority Knowledge)
-            if include_lore:
+            if include_lore and lore_k > 0:
                 lore_res = self.lore_ledger.query(
                     query_embeddings=[query_embedding],
-                    n_results=2, # Lore is high-signal, take fewer
+                    n_results=lore_k,
                     where={"session_id": session_id},
                     include=["documents", "metadatas", "distances"],
                 )

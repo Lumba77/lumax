@@ -27,6 +27,25 @@ def _service_ok(url: str, timeout: float = 3.0) -> bool:
         return False
 
 
+def _resolved_tts_backend() -> str:
+    """
+    Active mouth stack: turbo or chatterbox.
+    Source order: marker file first, then env, then turbo.
+    """
+    marker = os.getenv("LUMAX_TTS_BACKEND_FILE", "/app/Backend/preflight/tts_backend").strip()
+    if marker:
+        try:
+            if os.path.isfile(marker):
+                with open(marker, "r", encoding="utf-8-sig") as f:
+                    first = (f.readline() or "").strip().lower()
+                    if first in ("turbo", "chatterbox"):
+                        return first
+        except Exception:
+            pass
+    env_v = os.getenv("LUMAX_TTS_BACKEND", "turbo").strip().lower()
+    return env_v if env_v in ("turbo", "chatterbox") else "turbo"
+
+
 def run_preflight(level: str = "light", autoheal: bool = True) -> List[CheckResult]:
     """
     Lightweight backend-side preflight for sentry loops.
@@ -63,12 +82,14 @@ def run_preflight(level: str = "light", autoheal: bool = True) -> List[CheckResu
 
     if level in {"standard", "deep"}:
         # Services inside compose network
+        tts_backend = _resolved_tts_backend()
         services = {
             "soul_health": "http://lumax_soul:8000/health",
             "ears_health": "http://lumax_body:8001/health",
             "mouth_health": "http://lumax_body:8002/health",
-            "turbo_health": "http://lumax_turbochat:8005/health",
         }
+        if tts_backend == "turbo":
+            services["turbo_health"] = "http://lumax_turbochat:8005/health"
         for name, url in services.items():
             ok = _service_ok(url)
             results.append(

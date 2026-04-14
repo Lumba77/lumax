@@ -1,3 +1,11 @@
+"""
+Chatterbox-style TTS API for Lumax (HTTP :8005).
+
+Primary configured engine: XTTS v2 streaming (ONNX). This is the in-stack
+Chatterbox API node: same role as the original lumax_chatterbox_turbo container,
+renamed lumax_turbochat for a shorter name. Additional TTS backends from the suite
+can be wired here as the implementation grows; today synthesis is XTTS-only.
+"""
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -47,15 +55,21 @@ def _resolve_streaming_pipeline_cls():
             logger.warning("Turbo import miss for %s: %s", mod_name, e)
     return None
 
+
+# Speaker id = basename of a file in audio_ref/ without extension (e.g. female_american1-lumba.wav).
+_ts = os.getenv("LUMAX_TURBO_DEFAULT_SPEAKER", "female_american1-lumba").strip()
+DEFAULT_SPEAKER = _ts if _ts else "female_american1-lumba"
+
+
 class TTSRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     text: str
-    speaker_id: str = "default"
+    speaker_id: str = DEFAULT_SPEAKER
+
 
 app = FastAPI(title="Lumax Turbochat")
 pipeline = None
-latents_cache = {} # Cache for multiple speakers
-DEFAULT_SPEAKER = "female_shadowheart"
+latents_cache = {}  # Cache for multiple speakers
 
 @app.on_event("startup")
 def load_model():
@@ -94,7 +108,8 @@ def load_model():
 
         logger.info(f"Loading Pipeline from {model_dir}...")
         pipeline = pipeline_cls(model_dir, vocab_path, mel_stats_path, use_int8_gpt=True)
-        
+
+        logger.info("XTTS default speaker id (audio_ref/<id>.wav): %s", DEFAULT_SPEAKER)
         # Pre-load the default speaker
         _get_or_load_latents(DEFAULT_SPEAKER)
 

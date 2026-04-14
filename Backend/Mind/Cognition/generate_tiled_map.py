@@ -4,7 +4,7 @@ import os
 from PIL import Image
 import io
 
-URL = "http://localhost:8004/api/dream"
+URL = "http://localhost:8003/api/dream"
 OUTPUT_DIR = "C:/Users/lumba/Program/VR-compagent/div/image/pedagogical_map"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 

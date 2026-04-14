@@ -4,7 +4,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-URL = "http://localhost:8004/api/dream"
+URL = "http://localhost:8003/api/dream"
 WIDTH, HEIGHT = 3072, 4096
 TILE_SIZE = 1024
 OVERLAP = 128

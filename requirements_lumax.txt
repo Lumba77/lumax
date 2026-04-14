@@ -1,5 +1,7 @@
 # Core API
 fastapi
+itsdangerous
+json5
 uvicorn
 httpx
 pydantic
@@ -26,3 +28,14 @@ instruct
 compressed-tensors
 qwen-vl-utils
 torchvision
+spandrel
+# Creativity / diffusers stack (lumax_creativity; also used with Invoke-style local weights)
+diffusers
+transformers
+accelerate
+xformers
+safetensors
+
+# Dev: `tests/` pytest (async STT/TTS checks against local stack)
+pytest
+pytest-asyncio

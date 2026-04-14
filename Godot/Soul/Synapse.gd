@@ -24,6 +24,18 @@ signal soul_runtime_status_received(data: Dictionary)
 @export var quest_lan_auto_discover: bool = true
 ## STT/Soul: print every HTTP step (large STT payloads spam the Godot console and trigger "output overflow").
 @export var verbose_http_logs: bool = false
+## When true, POST /compagent includes deep_think (richer vector retrieval + higher decode budget; slower than VR fast path).
+@export var deep_think: bool = false
+## Timeout for Soul HTTP POSTs (compagent/sensory/switch_model). Raise on slower local models.
+@export_range(15.0, 300.0, 1.0) var soul_http_timeout_sec: float = 120.0
+## Heartbeat cadence for /health probes. Higher value reduces churn during heavy inference.
+@export_range(5.0, 60.0, 1.0) var heartbeat_interval_sec: float = 20.0
+## Timeout for each /health probe. Raise on congested Wi‑Fi / busy local runtime.
+@export_range(1.0, 15.0, 0.5) var health_probe_timeout_sec: float = 4.0
+## Consecutive failed heartbeats before launching subnet sweep.
+@export_range(1, 6, 1) var health_fail_threshold: int = 3
+## Avoid false "UNREACHABLE" while a Soul POST is actively in-flight/backlogged.
+@export var heartbeat_skip_during_soul_post: bool = true
 
 ## Filled from res://lumax_network_config.json (connect_quest.ps1 / Docker sentry): PC LAN for P2P / non-reverse fallbacks.
 var pc_lan_ip: String = ""
@@ -36,12 +48,25 @@ var _current_ip_idx = 0
 var _is_searching = false
 var _sweep_active = false
 var _health_fail_streak: int = 0
+var _desktop_loopback_fallback_done: bool = false
 ## True after lumax_network_config.json was found and parsed (export must include this file for Quest LAN).
 var network_config_loaded_ok: bool = false
 const _USER_SOUL_HOST_PATH := "user://lumax_soul_host.txt"
 var _lan_autodiscover_running: bool = false
 var _ad_probe_done: bool = false
 var _ad_probe_code: int = 0
+
+# Rich connection context for error logs; helps diagnose stale LAN vs adb vs loopback quickly.
+func _conn_debug_context() -> String:
+	var is_android_runtime: bool = OS.get_name().to_lower() == "android"
+	return "host=%s pc_lan=%s nat_peer=%s adb_reverse=%s android=%s netcfg=%s" % [
+		server_ip,
+		pc_lan_ip,
+		nat_peer_default,
+		str(adb_reverse_first),
+		str(is_android_runtime),
+		str(network_config_loaded_ok),
+	]
 
 # --- DEDICATED REQUEST NODES ---
 var _soul_request: HTTPRequest
@@ -268,15 +293,15 @@ func _ready():
 			)
 
 	_heartbeat_timer = Timer.new()
-	_heartbeat_timer.wait_time = 15.0 # Check every 15s
+	_heartbeat_timer.wait_time = clampf(heartbeat_interval_sec, 5.0, 60.0)
 	_heartbeat_timer.autostart = true
 	add_child(_heartbeat_timer)
 	_heartbeat_timer.timeout.connect(_test_server_connectivity)
 	
 	_soul_request = HTTPRequest.new()
 	_soul_request.name = "SoulRequest"
-	# 300s left compagent hung for hours when :8000 was down; STT on :8001 still worked but Soul channel stayed "busy".
-	_soul_request.timeout = 45.0
+	# Keep bounded to avoid endless hang, but high enough for heavier local prompts/models.
+	_soul_request.timeout = clampf(soul_http_timeout_sec, 15.0, 300.0)
 	add_child(_soul_request)
 	_soul_request.request_completed.connect(_on_soul_completed)
 
@@ -294,24 +319,59 @@ func _ready():
 
 func _test_server_connectivity():
 	if _is_searching: return
+	if (
+		heartbeat_skip_during_soul_post
+		and _soul_request != null
+		and (
+			_soul_request.get_http_client_status() == HTTPClient.STATUS_REQUESTING
+			or _soul_post_queue.size() > 0
+		)
+	):
+		if verbose_http_logs:
+			print("LUMAX DBG: Heartbeat skipped (Soul POST active/backlog).")
+		return
+	var is_android_runtime := OS.get_name().to_lower() == "android"
+	# Quest/LAN guard: never keep testing 127.0.0.1 unless adb reverse mode is intentionally on.
+	if is_android_runtime and not adb_reverse_first and server_ip == "127.0.0.1":
+		if pc_lan_ip.is_valid_ip_address():
+			server_ip = pc_lan_ip
+			print("LUMAX: Quest LAN guard: replacing loopback with pc_lan_ip -> ", server_ip)
+		elif quest_lan_auto_discover and not _lan_autodiscover_running:
+			print("LUMAX: Quest LAN guard: loopback detected without adb reverse; starting LAN auto-discover. " + _conn_debug_context())
+			call_deferred("_quest_lan_autodiscover_async")
+			return
 	_is_searching = true
 	var url = "http://" + server_ip + ":8000/health"
 	var test_req = HTTPRequest.new(); add_child(test_req)
 	test_req.request_completed.connect(func(_r, c, _h, _b):
 		_is_searching = false
 		if c != 200:
-			print("LUMAX: AI Bridge (" + server_ip + ") UNREACHABLE.")
+			print("LUMAX: AI Bridge UNREACHABLE. " + _conn_debug_context())
+			if (
+				not is_android_runtime
+				and not adb_reverse_first
+				and not _desktop_loopback_fallback_done
+				and server_ip != "127.0.0.1"
+			):
+				_desktop_loopback_fallback_done = true
+				print("LUMAX: Desktop fallback: stale LAN host likely. Retrying Soul on 127.0.0.1:8000 before subnet sweep.")
+				server_ip = "127.0.0.1"
+				_health_fail_streak = 0
+				test_req.queue_free()
+				call_deferred("_test_server_connectivity")
+				return
 			_health_fail_streak += 1
 			# After repeated failure, re-discover (fixes stale 192.168.x when WiFi/adb flaps; not only when stuck on loopback).
-			if _health_fail_streak >= 2 and not _sweep_active:
+			if _health_fail_streak >= clampi(health_fail_threshold, 1, 6) and not _sweep_active:
 				_health_fail_streak = 0
 				_run_subnet_sweep()
 		else:
+			_desktop_loopback_fallback_done = false
 			_health_fail_streak = 0
-			print("LUMAX: AI Bridge ACTIVE at " + server_ip)
+			print("LUMAX: AI Bridge ACTIVE. " + _conn_debug_context())
 		test_req.queue_free()
 	)
-	test_req.timeout = 2.0
+	test_req.timeout = clampf(health_probe_timeout_sec, 1.0, 15.0)
 	test_req.request(url)
 
 func _run_subnet_sweep():
@@ -413,6 +473,8 @@ func send_chat_message(text: String, channel: String = "text", image_base64: Str
 	var cr := cloud_routing.strip_edges()
 	if cr.length() > 0:
 		payload["cloud_routing"] = cr
+	if deep_think:
+		payload["deep_think"] = true
 	var log_s := "LUMAX: Queuing Soul POST %s (chars=%d, channel=%s, backlog=%d)" % [url, text.length(), channel, _soul_post_queue.size()]
 	if log_s.length() > 200:
 		log_s = log_s.substr(0, 197) + "..."
@@ -447,8 +509,8 @@ func _on_stt_completed(result: int, response_code: int, _headers: PackedStringAr
 		var rlabel := _http_result_label(result)
 		var hint := ""
 		if result == HTTPRequest.RESULT_CANT_CONNECT:
-			hint = " host=%s — Quest needs PC LAN IP (lumax_network_config.json) or USB adb reverse; ensure Docker publishes :8001." % server_ip
-		request_failed.emit("STT %s (http_code=%s)%s" % [rlabel, str(response_code), hint])
+			hint = " — Quest needs PC LAN IP (lumax_network_config.json) or USB adb reverse; ensure Docker publishes :8001."
+		request_failed.emit("STT %s (http_code=%s)%s | %s" % [rlabel, str(response_code), hint, _conn_debug_context()])
 		return
 	if response_code != 200:
 		request_failed.emit("STT HTTP %s: %s" % [str(response_code), body_str.substr(0, 120)])
@@ -522,14 +584,14 @@ func _on_soul_completed(result: int, response_code: int, _headers: PackedStringA
 		var rlabel := _http_result_label(result)
 		var hint := ""
 		if result == HTTPRequest.RESULT_TIMEOUT:
-			hint = " Soul took longer than HTTPRequest.timeout, or the link stalled (slow LLM, Wi‑Fi/Virtual Desktop)."
+			hint = " Soul took longer than HTTPRequest.timeout=%ss, or the link stalled (slow LLM, Wi‑Fi/Virtual Desktop)." % str(_soul_request.timeout)
 		elif result == HTTPRequest.RESULT_CANT_CONNECT:
-			hint = " host=%s — Quest: set PC LAN in lumax_network_config.json or use adb reverse; PC: docker compose up + firewall :8000." % server_ip
+			hint = " Quest: set PC LAN in lumax_network_config.json or use adb reverse; PC: docker compose up + firewall :8000."
 		elif result != HTTPRequest.RESULT_SUCCESS:
 			hint = " Transport/abort (e.g. quit VR mid-request)."
 		if verbose_http_logs:
 			print("LUMAX ERR: Soul HTTP finished but not OK: %s (%s) response_code=%s body.len=%s.%s" % [result, rlabel, response_code, body.size(), hint])
-		request_failed.emit("Soul %s (http_code=%s)%s" % [rlabel, response_code, hint])
+		request_failed.emit("Soul %s (http_code=%s)%s | %s" % [rlabel, response_code, hint, _conn_debug_context()])
 	_soul_flush_post_queue()
 
 

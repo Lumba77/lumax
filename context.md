@@ -134,3 +134,107 @@ Human session history (this file) pairs with in-engine logging: see [context_log
   - Docs: **`HANDOFF.md`** rewritten for current layout; **`context.md`** ingress paths and Godot/backend pointers updated; this log appended.
   - Related files: [.gitignore, docker-compose.yml, HANDOFF.md, context.md, Godot/Soul/Synapse.gd, Godot/Nexus/MultiplayerManager.gd, div/files/]
 
+- Session start [2026-04-09]
+- Task 18 end Docker: `lumax_ollama_backup` inspected (Up, healthy; healthcheck `/api/tags` every 20s — not a reload loop; Ollama “starting runner” in logs is normal per-request model load). Web UI `:8080` was down because uvicorn crashed on `ModuleNotFoundError: itsdangerous` (image predates `Dockerfile.unified` itsdangerous layer); fixed live with `pip install itsdangerous` + `docker restart lumax_ops` (HTTP 200). Permanent fix: rebuild `lumax_unified` (`docker compose build lumax_soul` or `build_lumax_unified.ps1`). [docker-compose.yml, Dockerfile.unified, lumax_ops logs]
+
+- Session start [2026-04-14]
+- Task 19 start [2026-04-14]
+  - **Feature map in Web UI**, **`FEATURE_INVENTORY.md` in-container path**, **Turbo TTS compose profile**, **handoff docs for Godot VR**.
+    - Investigation 1, User wanted the repo feature inventory browsable in ops with filters (tier, section, search, presets, full outline vs card rows). Implemented server-side parse of root `FEATURE_INVENTORY.md` + `GET /api/feature_inventory` (login-gated), cached by mtime., [Frontend/Body/Webui/feature_inventory_parser.py, Frontend/Body/Webui/web_app.py, Frontend/Body/Webui/index.html, Frontend/Body/Webui/lumax_ui_config.json]
+    - Investigation 2, “Feature inventory not found” in container: bind mount serves `FEATURE_INVENTORY.md` at `/app/` when the file exists at repo root on host; optional `LUMAX_FEATURE_INVENTORY_PATH`., [docker-compose.yml volumes `.:/app`]
+    - Investigation 3, `lumax_turbochat` was starting on every `docker compose up -d` and reserving GPU; product default mouth is Chatterbox — made XTTS **opt-in** via compose **`profiles: [turbo]`**., [docker-compose.yml]
+    - Investigation 4, Callers that start turbo must pass profile: **`switch_gpu_tts_stack.ps1 Xtts`**, **`web_app.py` GPU stack POST**, documented in HANDOFF + FEATURE_INVENTORY., [scripts/switch_gpu_tts_stack.ps1, Frontend/Body/Webui/web_app.py, HANDOFF.md, FEATURE_INVENTORY.md]
+
+--> !        * Tried solution 1 **Feature map UI:** New nav tab **FEATUREMAP** (`_BRAND_NAV_KEYS` + branding form `bf-nt-FEATUREMAP`). Client loads JSON, tier/category checkboxes, search, presets (stubs/roadmap/godot/web/strong), view modes “Filtered rows” vs “Full outline”. Parser skips tier-legend table; parity tables merge Web/Godot/Mobile cells into notes., [feature_inventory_parser.py, index.html, web_app.py]
+--> !        * Tried solution 2 **API:** `parse_feature_inventory_markdown()` returns `segments` + `flat_rows` + `categories`; response includes `source_file`., [feature_inventory_parser.py, web_app.py]
+--> !        * Tried solution 3 **Turbo profile:** `lumax_turbochat` has `profiles: [turbo]`; doc: `docker compose --profile turbo up -d lumax_turbochat` or `COMPOSE_PROFILES=turbo`. Plain `up -d` does not *stop* an already-running turbo container — user must `docker compose stop lumax_turbochat` once if needed., [docker-compose.yml]
+    * User confirmation: solved [2026-04-14]
+
+- Task 19 end Feature map shipped in Web UI; turbo opt-in by profile; context + HANDOFF updated for next agents and Godot VR focus.
+
+**Reference for future agents — Feature map pipeline**
+
+1. **Source of truth:** Repo root **`FEATURE_INVENTORY.md`** (heuristic product map: tiers A–D, stubs, cross-surface table).
+2. **Runtime:** `lumax_ops` reads file from **`Path(_repo_root()) / "FEATURE_INVENTORY.md"`** unless **`LUMAX_FEATURE_INVENTORY_PATH`** overrides. `_repo_root()` uses **`LUMAX_REPO_ROOT`** or parents of `web_app.py` (three levels up → repo root).
+3. **Parse:** `Frontend/Body/Webui/feature_inventory_parser.py` — markdown → `segments` (h1/h2/h3, paragraphs, tables, hr) and `flat_rows` (table rows with tier/category/search_blob for filters).
+4. **API:** `GET /api/feature_inventory` — requires session (same as other tools); returns `{ ok, segments, flat_rows, categories, source_file }` or `{ ok:false, path, detail }`.
+5. **UI:** Sidebar **Utilities → FEATURE MAP**; filters client-side; edit markdown on disk → refresh tab (mtime cache invalidates on next request).
+6. **Branding:** Tab label editable in **LABEL EDITOR** (`nav_tabs.FEATUREMAP` / `bf-nt-FEATUREMAP`).
+
+- Task 20 start [2026-04-14]
+  - Cursor automation strategy using Feature Map as queue control plane.
+    - Investigation 1, User asked for a repeatable background-churn approach that ships automatable features safely without lowering quality., [FEATURE_INVENTORY.md, Frontend/Body/Webui Feature Map]
+--> !        * Tried solution 1 Added `AGENT_AUTOMATION_WORKFLOW.md` with queue rules (Godot C -> B), safety gates, single-item execution loop, prompt templates, and initial top-5 targets for next sessions., [AGENT_AUTOMATION_WORKFLOW.md]
+--> !        * Tried solution 2 Linked playbook in `HANDOFF.md` under a dedicated Automation section for future agents and sessions., [HANDOFF.md]
+    * User confirmation: solved [2026-04-14]
+
+- Task 20 end Automation playbook established; Feature Map now doubles as planning/queue substrate for safe continuous implementation.
+
+- Task 21 start [2026-04-14]
+  - Feature Map automation loop (single item): **Godot Tier C -> Files panel activation** in `WebUI.gd`.
+    - Investigation 1, Files tab had list population but activation handler was hardcoded to `ACCESS_DENIED` dead-end., [Godot/Mind/WebUI.gd, FEATURE_INVENTORY.md]
+--> !        * Tried solution 1 Replaced dead activation with `_on_file_activated(path)`: emit new signal `file_activation_requested(path)`, show in-panel status updates, open URLs and resolvable local paths (`res://`, `user://`, absolute) via `OS.shell_open`, and keep fallback `FILE_REQUESTED` message for entries requiring higher-layer handlers., [Godot/Mind/WebUI.gd]
+--> !        * Tried solution 2 Updated inventory classification from strict C to **B/C** with notes that activation is now live while backend/import policy for non-local entries remains pending., [FEATURE_INVENTORY.md]
+    * User confirmation: solved [2026-04-14]
+
+- Task 21 end Godot Files panel no longer dead-clicks; activation path is functional with clear status + signal hook for future backend/file-policy wiring.
+
+- Task 22 start [2026-04-14]
+  - Feature Map automation loop (single item): **Godot Tier C -> Emotions wiring** in `WebUI.gd` / `SkeletonKey.gd`.
+    - Investigation 1, Emotions panel had only a subset of real signals; most buttons were chat-only (`STIMULATING_EMOTION`). Existing backbone can route sensory events through Synapse (`inject_sensory_event`)., [Godot/Mind/WebUI.gd, Godot/Nexus/SkeletonKey.gd, Godot/Soul/Synapse.gd]
+--> !        * Tried solution 1 Added `emotion_stimulus_requested(emotion_name)` signal in `WebUI.gd` and rewired `AWE`, `CURIOUS`, `CONTEMPLATE` buttons to emit real signal + status message, while leaving other buttons unchanged for scoped single-item rollout., [Godot/Mind/WebUI.gd]
+--> !        * Tried solution 2 Wired signal in `SkeletonKey.gd` (initial and rebind paths) to `_on_emotion_stimulus_requested`, forwarding to `_synapse.inject_sensory_event` with structured payload and user notification., [Godot/Nexus/SkeletonKey.gd]
+--> !        * Tried solution 3 Updated inventory row and added concise human summary ledger file for completed automation cycles., [FEATURE_INVENTORY.md, AUTOMATION_SUMMARY.md]
+    * User confirmation: solved [2026-04-14]
+
+- Task 22 end Three additional emotions are now real signal-driven via Synapse sensory channel; remaining emotion buttons still chat-only by design until next cycle.
+
+- Task 23 start [2026-04-14]
+  - Preflight scene stabilization before user launches Godot editor.
+    - Investigation 1, awkward standing pose likely from startup path where idle is only explicitly forced when `use_chosen_idle_pool` is enabled., [Godot/Nexus/SkeletonKey.gd]
+--> !        * Tried solution 1 Added fallback in `_setup_ambience`: when Chosen pool is off/unavailable, call `play_animation("idle")` on `_jen_avatar` so startup cannot remain in bind/rest-like pose., [Godot/Nexus/SkeletonKey.gd]
+--> !        * Tried solution 2 Added concise preflight cycle entry in automation ledger for future runs and quick operator visibility., [AUTOMATION_SUMMARY.md]
+    * User confirmation: pending [2026-04-14]
+
+- Task 23 end Startup now forces a stable idle fallback on first boot when Chosen idle pool is not active.
+
+- Task 24 start [2026-04-14]
+  - Runtime stabilization after user report: Synapse connection errors + sentry warning for Turbo offline while using Chatterbox.
+    - Investigation 1, preflight/sentry heartbeats always included `TURBO` endpoint regardless active TTS backend, causing false warning noise in Chatterbox mode., [Backend/preflight/checks.py, Backend/autonomous_sentry.py, Backend/preflight/tts_backend]
+    - Investigation 2, awkward avatar standing still persisted on some boots; likely late AnimationPlayer/lungs rebind after initial idle command., [Godot/Nexus/SkeletonKey.gd, Godot/scripts/avatar_controller.gd]
+--> !        * Tried solution 1 Added `_resolved_tts_backend()` in both sentry and preflight modules and gated Turbo health checks to only run when backend resolves to `turbo` (marker file/env aware)., [Backend/preflight/checks.py, Backend/autonomous_sentry.py]
+--> !        * Tried solution 2 Added delayed startup idle retry `_force_startup_idle_fallback()` in `SkeletonKey` (0.8s post-boot) to catch late bind/rebind paths., [Godot/Nexus/SkeletonKey.gd]
+--> !        * Tried solution 3 Logged operator-facing summary in `AUTOMATION_SUMMARY.md` and noted restart requirement for lumax_ops runtime to pick sentry/preflight changes., [AUTOMATION_SUMMARY.md]
+    * User confirmation: pending [2026-04-14]
+
+- Task 24 end Turbo warning path aligned with active TTS backend; avatar idle bootstrap now has immediate + delayed fallback for late animation binding.
+
+- Task 25 start [2026-04-14]
+  - Runtime stabilization after concrete Synapse logs: stale LAN host (`192.168.8.100`) causing `Soul CANT_CONNECT (http_code=0)` during desktop run.
+    - Investigation 1, Synapse loaded LAN host from config/cache and attempted it first; desktop local run should prefer loopback when stale LAN host fails., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 1 Added one-time desktop loopback auto-fallback in `_test_server_connectivity`: on unreachable non-Android LAN host, switch to `127.0.0.1` and re-probe before subnet sweep., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 2 Documented expected behavior and operator-facing summary in automation ledger., [AUTOMATION_SUMMARY.md]
+    * User confirmation: pending [2026-04-14]
+
+- Task 25 end Synapse now self-recovers from stale LAN host on desktop by trying local Docker soul loopback before broader sweep.
+
+- Task 26 start [2026-04-14]
+  - Synapse logging and Quest LAN guard hardening (user requested explicit IP diagnostics on failures).
+    - Investigation 1, failure logs reported CANT_CONNECT but lacked full runtime context to quickly diagnose stale LAN vs adb reverse vs loopback mode., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 1 Added `_conn_debug_context()` and appended it to heartbeat unreachable/active logs plus STT/Soul transport failure emits (`request_failed`) so IP/mode fields are always visible in one line., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 2 Added Android runtime guard in `_test_server_connectivity` to prevent lingering loopback in LAN mode: auto-switch to `pc_lan_ip` when valid, otherwise trigger LAN auto-discover instead of probing 127.0.0.1., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 3 Logged this cycle summary in automation ledger for quick operator review., [AUTOMATION_SUMMARY.md]
+    * User confirmation: pending [2026-04-14]
+
+- Task 26 end Synapse failures now print explicit host/mode context and Quest LAN mode no longer silently lingers on loopback probes.
+
+- Task 27 start [2026-04-14]
+  - Runtime tuning from logs: `Soul TIMEOUT (http_code=0)` occurred while bridge health stayed ACTIVE, indicating inference duration exceeded request timeout.
+    - Investigation 1, Soul transport is healthy (`host=127.0.0.1` ACTIVE), but `_soul_request.timeout` was fixed too low for heavier local prompts/models under load., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 1 Added exported timeout control `soul_http_timeout_sec` (default 120s) and bound `_soul_request.timeout` to it (clamped 15..300), preserving hang safety while reducing false timeout failures., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 2 Enhanced timeout hint text to include current effective timeout value for faster field diagnosis., [Godot/Soul/Synapse.gd]
+--> !        * Tried solution 3 Logged concise cycle summary entry for operators., [AUTOMATION_SUMMARY.md]
+    * User confirmation: pending [2026-04-14]
+
+- Task 27 end Synapse timeout behavior tuned for long local inference without changing network routing logic.
+

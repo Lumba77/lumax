@@ -7,13 +7,17 @@ signal brain_selected(model_name: String)
 signal low_vram_toggled()
 signal vision_sensing_requested()
 signal files_requested()
+signal file_activation_requested(path: String)
 signal archive_requested()
 signal dream_requested()
 signal system_check_requested()
 signal soul_verification_requested()
 signal user_certification_requested()
+signal emotion_stimulus_requested(emotion_name: String)
 ## Indices match `SkeletonKey.QuestDisplayMode`: 0 Auto, 1 Pure passthrough, 2 XR mixed, 3 VR.
 signal quest_display_mode_selected(mode_index: int)
+## Indices match `SkeletonKey.XRFlowProfile`: 0 Off, 1 Balanced, 2 Performance.
+signal xr_flow_profile_selected(mode_index: int)
 ## Match `MultiVisionHandler.UserVisionSource` / `JenVisionSource` enum ordinals.
 signal user_vision_source_selected(mode_index: int)
 signal jen_vision_source_selected(mode_index: int)
@@ -39,6 +43,7 @@ var _last_host_cpu_pct: float = -1.0
 const STRESS_HOT_PCT := 550.0
 const STRESS_CLEAR_PCT := 300.0
 var _quest_display_ob: OptionButton = null
+var _xr_flow_ob: OptionButton = null
 var _user_vision_ob: OptionButton = null
 var _jen_vision_ob: OptionButton = null
 
@@ -51,6 +56,10 @@ var _system_local_caption_cb: CheckButton = null
 var _system_chat_provider_ob: OptionButton = null
 var _system_status_label: Label = null
 var _system_synapse_signals_done: bool = false
+## SYSTEM tab: mouth TTS routing (:8002) — VR cannot call Docker; use PC Web UI for full GPU switch.
+var _tts_backend_ob: OptionButton = null
+var _tts_get_http: HTTPRequest = null
+var _tts_put_http: HTTPRequest = null
 const _PATH_GEMMA_HERETIC_DEFAULT := "D:/VR_AI_Forge_Data/models/Mind/Cognition/gemma-4-E2B-it-heretic-ara.Q4_K_M.gguf"
 const _SYSTEM_PREFS_PATH := "user://lumax_soul_runtime_prefs.json"
 
@@ -62,7 +71,7 @@ var _hubs: Dictionary = {
 	"MIND": ["PSYCHE", "SOUL", "BRAINS", "MEMORY", "EMOTIONS"],
 	"BODY": ["VESSEL", "AGENCY", "VITALS"],
 	"MANIFEST": ["IMAGEN", "VIDGEN", "MEDIA"],
-	"CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "FILES"],
+	"CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "CHATTERBOX", "FILES"],
 }
 const _UI_CONFIG_CACHE := "user://lumax_ui_config_cache.json"
 var _ribbon_labels: Dictionary = {}
@@ -82,6 +91,12 @@ func _ready():
 	_ui_http = HTTPRequest.new()
 	add_child(_ui_http)
 	_ui_http.request_completed.connect(_on_ui_config_http_done)
+	_tts_get_http = HTTPRequest.new()
+	add_child(_tts_get_http)
+	_tts_get_http.request_completed.connect(_on_tts_get_http_done)
+	_tts_put_http = HTTPRequest.new()
+	add_child(_tts_put_http)
+	_tts_put_http.request_completed.connect(_on_tts_put_http_done)
 	
 	if LogMaster:
 		LogMaster.log_added.connect(_on_log_added)
@@ -257,7 +272,7 @@ func _sanitize_hubs(raw: Variant) -> Dictionary:
 		"MIND": ["PSYCHE", "SOUL", "BRAINS", "MEMORY", "EMOTIONS"],
 		"BODY": ["VESSEL", "AGENCY", "VITALS"],
 		"MANIFEST": ["IMAGEN", "VIDGEN", "MEDIA"],
-		"CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "FILES"],
+		"CORE": ["CHAT", "LOGS", "SETTINGS", "SYSTEM", "CHATTERBOX", "FILES"],
 	}
 	if typeof(raw) != TYPE_DICTIONARY:
 		return fallback
@@ -388,6 +403,8 @@ func _on_tab_pressed(tab_name: String):
 			_show_settings_panel()
 		"SYSTEM":
 			_show_system_runtime_panel()
+		"CHATTERBOX":
+			_show_chatterbox_panel()
 		"WIDGETS":
 			_show_widgets_settings()
 		"LOGS":
@@ -571,6 +588,18 @@ func _populate_settings_list(settings_list: VBoxContainer):
 	_quest_display_ob = ob_q
 	ob_q.item_selected.connect(_on_quest_display_option_selected)
 
+	var h_xrf := HBoxContainer.new(); settings_list.add_child(h_xrf)
+	var l_xrf := Label.new(); l_xrf.text = "XR_FLOW_PROFILE"; l_xrf.custom_minimum_size.x = 200; h_xrf.add_child(l_xrf)
+	var ob_xrf := OptionButton.new()
+	ob_xrf.size_flags_horizontal = SIZE_EXPAND_FILL
+	h_xrf.add_child(ob_xrf)
+	ob_xrf.add_item("Off (no runtime XR tuning)")
+	ob_xrf.add_item("Balanced (recommended)")
+	ob_xrf.add_item("Performance (extra headroom)")
+	ob_xrf.select(1)
+	_xr_flow_ob = ob_xrf
+	ob_xrf.item_selected.connect(_on_xr_flow_profile_option_selected)
+
 	var h_uv := HBoxContainer.new(); settings_list.add_child(h_uv)
 	var l_uv := Label.new(); l_uv.text = "USER_VISION_FEED"; l_uv.custom_minimum_size.x = 200; h_uv.add_child(l_uv)
 	var ob_uv := OptionButton.new(); ob_uv.size_flags_horizontal = SIZE_EXPAND_FILL; h_uv.add_child(ob_uv)
@@ -610,6 +639,12 @@ func _on_quest_display_option_selected(idx: int) -> void:
 	_play_sfx("pop")
 	quest_display_mode_selected.emit(idx)
 	add_message("SYSTEM", "QUEST_DISPLAY_MODE -> index " + str(idx))
+
+
+func _on_xr_flow_profile_option_selected(idx: int) -> void:
+	_play_sfx("pop")
+	xr_flow_profile_selected.emit(idx)
+	add_message("SYSTEM", "XR_FLOW_PROFILE -> index " + str(idx))
 
 
 func _on_user_vision_option_selected(idx: int) -> void:
@@ -844,9 +879,36 @@ func _show_system_runtime_panel() -> void:
 		_system_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_system_status_label.text = "—"
 		vbox.add_child(_system_status_label)
+		var sep_tts := HSeparator.new()
+		vbox.add_child(sep_tts)
+		var tts_title := Label.new()
+		tts_title.text = "TTS_STACK // MOUTH (:8002)"
+		tts_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(tts_title)
+		var tts_hint := Label.new()
+		tts_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tts_hint.text = "Applies routing file only (turbo vs chatterbox HTTP). Full GPU Docker switch: PC Web UI port 8080 → Utils, or host script switch_gpu_tts_stack.ps1."
+		vbox.add_child(tts_hint)
+		var h_tts := HBoxContainer.new()
+		vbox.add_child(h_tts)
+		var l_tts := Label.new()
+		l_tts.text = "BACKEND"
+		l_tts.custom_minimum_size.x = 100
+		h_tts.add_child(l_tts)
+		_tts_backend_ob = OptionButton.new()
+		_tts_backend_ob.size_flags_horizontal = SIZE_EXPAND_FILL
+		h_tts.add_child(_tts_backend_ob)
+		_tts_backend_ob.add_item("turbo (XTTS)")
+		_tts_backend_ob.add_item("chatterbox (Resemble)")
+		var tts_b := Button.new()
+		tts_b.text = "Apply"
+		tts_b.custom_minimum_size = Vector2(100, 36)
+		h_tts.add_child(tts_b)
+		tts_b.pressed.connect(_apply_tts_backend_vr)
 	panel.visible = true
 	_wire_system_synapse_once()
 	_refresh_system_runtime_status()
+	_refresh_tts_backend_select_vr()
 
 
 func _refresh_system_runtime_status() -> void:
@@ -854,6 +916,113 @@ func _refresh_system_runtime_status() -> void:
 	var syn: Node = get_tree().get_first_node_in_group("lumax_synapse")
 	if syn and syn.has_method("fetch_soul_runtime_status"):
 		syn.fetch_soul_runtime_status()
+
+
+func _mouth_base_url() -> String:
+	var syn: Node = get_tree().get_first_node_in_group("lumax_synapse")
+	if syn == null:
+		return "http://127.0.0.1:8002"
+	var ip := str(syn.get("server_ip")).strip_edges()
+	if ip.is_empty():
+		ip = "127.0.0.1"
+	return "http://" + ip + ":8002"
+
+
+## Resemble Chatterbox Web UI (host :8004). Override with LUMAX_CHATTERBOX_UI_URL; port with CHATTERBOX_UI_PORT.
+func _chatterbox_ui_url() -> String:
+	var o := str(OS.get_environment("LUMAX_CHATTERBOX_UI_URL")).strip_edges()
+	if o != "" and (o.begins_with("http://") or o.begins_with("https://")):
+		return o.trim_suffix("/") + "/"
+	var port := str(OS.get_environment("CHATTERBOX_UI_PORT")).strip_edges()
+	if port.is_empty():
+		port = "8004"
+	var syn: Node = get_tree().get_first_node_in_group("lumax_synapse")
+	var ip := "127.0.0.1"
+	if syn != null:
+		var sip := str(syn.get("server_ip")).strip_edges()
+		if not sip.is_empty():
+			ip = sip
+	return "http://" + ip + ":" + port + "/"
+
+
+func _show_chatterbox_panel() -> void:
+	var panel: Control = _content_stack.get_node_or_null("ChatterboxPanel")
+	if not panel:
+		panel = ScrollContainer.new()
+		panel.name = "ChatterboxPanel"
+		panel.set_anchors_preset(PRESET_FULL_RECT)
+		_content_stack.add_child(panel)
+		var vbox := VBoxContainer.new()
+		vbox.name = "ChatterboxVBox"
+		vbox.size_flags_horizontal = SIZE_EXPAND_FILL
+		panel.add_child(vbox)
+		var title := Label.new()
+		title.text = "CHATTERBOX // TTS UI"
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(title)
+		var hint := Label.new()
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint.text = "VR cannot embed the Chatterbox web app. Use the PC Web UI (port 8080) CHATTERBOX tab for an embedded view, or open the URL below on your desktop."
+		vbox.add_child(hint)
+		var url_lbl := Label.new()
+		url_lbl.name = "ChatterboxUrlLabel"
+		url_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vbox.add_child(url_lbl)
+		var open_b := Button.new()
+		open_b.text = "Open Chatterbox UI in browser"
+		open_b.custom_minimum_size = Vector2(280, 48)
+		open_b.pressed.connect(func():
+			_play_sfx("pop")
+			OS.shell_open(_chatterbox_ui_url()))
+		vbox.add_child(open_b)
+	var url_node: Label = panel.get_node_or_null("ChatterboxVBox/ChatterboxUrlLabel") as Label
+	if url_node:
+		url_node.text = "URL: " + _chatterbox_ui_url()
+	panel.visible = true
+
+
+func _refresh_tts_backend_select_vr() -> void:
+	if _tts_get_http == null:
+		return
+	var url := _mouth_base_url() + "/tts/backend"
+	var e := _tts_get_http.request(url)
+	if e != OK:
+		add_message("SYSTEM", "TTS_BACKEND GET err " + str(e))
+
+
+func _on_tts_get_http_done(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if _tts_backend_ob == null:
+		return
+	if code != 200:
+		add_message("SYSTEM", "TTS_BACKEND GET HTTP " + str(code))
+		return
+	var j := JSON.new()
+	if j.parse(body.get_string_from_utf8()) != OK:
+		return
+	var data = j.data
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	var b := str(data.get("backend", "turbo"))
+	_tts_backend_ob.select(0 if b == "turbo" else 1)
+
+
+func _apply_tts_backend_vr() -> void:
+	if _tts_put_http == null or _tts_backend_ob == null:
+		return
+	var backend := "turbo" if _tts_backend_ob.selected == 0 else "chatterbox"
+	var payload := JSON.stringify({"backend": backend})
+	var url := _mouth_base_url() + "/tts/backend"
+	var headers := PackedStringArray(["Content-Type: application/json"])
+	var e := _tts_put_http.request(url, headers, HTTPClient.METHOD_PUT, payload)
+	if e != OK:
+		add_message("SYSTEM", "TTS_BACKEND PUT err " + str(e))
+
+
+func _on_tts_put_http_done(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if code == 200:
+		add_message("SYSTEM", "TTS_BACKEND " + body.get_string_from_utf8().substr(0, 160))
+	else:
+		add_message("SYSTEM", "TTS_BACKEND PUT HTTP " + str(code) + " " + body.get_string_from_utf8().substr(0, 120))
 
 
 func _on_manual_setting_changed(setting: String, value: Variant):
@@ -1297,10 +1466,16 @@ func _show_files_panel():
 	if not panel:
 		panel = VBoxContainer.new(); panel.name = "FilesPanel"; _content_stack.add_child(panel)
 		var l = Label.new(); l.text = "LOCAL_FS // PROJECT_ARCHIVES"; panel.add_child(l)
+		var status = Label.new(); status.name = "FileStatus"; status.text = "Tap a file to request/open."; panel.add_child(status)
 		var list = ItemList.new(); list.name = "FileList"; list.size_flags_vertical = SIZE_EXPAND_FILL; panel.add_child(list)
-		list.item_activated.connect(func(idx): add_message("SYSTEM", "ACCESS_DENIED: " + list.get_item_text(idx)))
+		list.item_activated.connect(func(idx):
+			_on_file_activated(list.get_item_text(idx))
+		)
 	
 	panel.visible = true
+	var st: Label = panel.get_node_or_null("FileStatus") as Label
+	if st:
+		st.text = "Loading file list..."
 	files_requested.emit()
 
 func _on_files_received(files: Array):
@@ -1309,6 +1484,43 @@ func _on_files_received(files: Array):
 		var list = panel.get_node("FileList") as ItemList
 		list.clear()
 		for f in files: list.add_item(f)
+		var st: Label = panel.get_node_or_null("FileStatus") as Label
+		if st:
+			st.text = "Loaded " + str(files.size()) + " entries."
+
+
+func _on_file_activated(path: String) -> void:
+	var clean := path.strip_edges()
+	var panel = _content_stack.get_node_or_null("FilesPanel")
+	var st: Label = null
+	if panel:
+		st = panel.get_node_or_null("FileStatus") as Label
+	if clean.is_empty():
+		if st:
+			st.text = "No file selected."
+		return
+	file_activation_requested.emit(clean)
+	if st:
+		st.text = "Requested: " + clean
+	# Lightweight local behavior: open obvious local paths/URLs directly when safe.
+	var is_http := clean.begins_with("http://") or clean.begins_with("https://")
+	if is_http:
+		OS.shell_open(clean)
+		add_message("SYSTEM", "OPEN_URL: " + clean)
+		if st:
+			st.text = "Opened URL."
+		return
+	var abs_path := clean
+	if clean.begins_with("res://") or clean.begins_with("user://"):
+		abs_path = ProjectSettings.globalize_path(clean)
+	if clean.begins_with("res://") or clean.begins_with("user://") or clean.is_absolute_path():
+		if FileAccess.file_exists(abs_path):
+			OS.shell_open(abs_path)
+			add_message("SYSTEM", "OPEN_FILE: " + clean)
+			if st:
+				st.text = "Opened local file."
+			return
+	add_message("SYSTEM", "FILE_REQUESTED: " + clean)
 
 func _show_emotions_panel():
 	var panel = _content_stack.get_node_or_null("EmotionsPanel")
@@ -1338,9 +1550,21 @@ func _show_emotions_panel():
 				b.text = "CERTIFY_USER"
 				b.add_theme_color_override("font_color", Color.GOLD)
 				b.pressed.connect(func(): user_certification_requested.emit())
+			elif e == "AWE" or e == "CURIOUS" or e == "CONTEMPLATE":
+				b.add_theme_color_override("font_color", Color(0.82, 0.96, 1.0))
+				b.tooltip_text = "Wired to sensory channel."
+				b.pressed.connect(_on_emotion_stimulus_pressed.bind(e))
 			else:
 				b.pressed.connect(func(): add_message("SYSTEM", "STIMULATING_EMOTION: " + e))
 	panel.visible = true
+
+
+func _on_emotion_stimulus_pressed(emotion_name: String) -> void:
+	var em := emotion_name.strip_edges()
+	if em.is_empty():
+		return
+	emotion_stimulus_requested.emit(em)
+	add_message("SYSTEM", "EMOTION_STIMULUS_REQUESTED: " + em)
 
 func update_shared_views(user_tex: Texture2D, jen_tex: Texture2D):
 	var panel = _content_stack.get_node_or_null("ConferencePanel")

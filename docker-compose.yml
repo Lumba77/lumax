@@ -1,25 +1,33 @@
 # Home Assistant: lumax_homeassistant (./Backend/HomeAssistant:/config), port 8123. HA_URL/HA_TOKEN for lumax_soul from .env.
 # Optional .env next to this file:
-#   LUMAX_MODELS_ROOT=D:/Lumax/models
-#   LUMAX_PIPER_MODEL_DIR=.../tts-piper-amy/en/en_US/amy/medium
-#   LUMAX_TURBO_MODEL_DIR=.../XTTSv2-Streaming-ONNX
+#   COMPOSE_PROJECT_NAME — set to match `docker compose ls` (e.g. lumax_current) so `docker compose` heal actions from lumax_ops target this stack (required with Docker socket mount).
+#   LUMAX_MODELS_ROOT — host folder mounted as /app/models (path must match *where* you run `docker compose`):
+#     Docker Desktop from Windows (PowerShell/CMD): D:/Lumax/models
+#     WSL2 bash: /mnt/d/Lumax/models  — do NOT use D:/... in .env here; Docker returns "invalid volume specification".
+#   LUMAX_PIPER_MODEL_DIR, LUMAX_TURBO_MODEL_DIR — same rules (POSIX under WSL).
 #   Ollama model blobs: set OLLAMA_MODELS=/app/models/Ollama (lumax_ollama_backup) + LUMAX_MODELS_ROOT -> /app/models (same D: tree as soul).
 #   Named volume `ollama` = /root/.ollama (keys etc.; shared lumax_ollama_backup + lumax_ops).
-# Build order (first run): docker compose build lumax_soul && docker compose build lumax_turbochat
+# Build order (first run): docker compose build lumax_soul && docker compose --profile turbo build lumax_turbochat
+# lumax_turbochat (XTTS :8005) is profile "turbo" — NOT started by plain `docker compose up -d` (saves VRAM; default mouth is chatterbox + Piper).
+# Start XTTS when needed: `docker compose --profile turbo up -d lumax_turbochat` or set COMPOSE_PROFILES=turbo in .env
+# Optional Resemble Chatterbox Web UI (separate from XTTS turbochat): scripts/bootstrap_chatterbox_resemble.ps1 + docker-compose.chatterbox-resemble.yml
 # Windows: .\build_lumax_unified.ps1 — reuses a local BuildKit cache so the big llama-cpp wheel is not re-downloaded every time.
 # In-stack Ollama: docker compose build lumax_ollama_backup && docker compose up -d (default stack; models under LUMAX_MODELS_ROOT/Ollama).
 # If you run Ollama on the host on :11434, stop one or the other to avoid a port bind conflict (or set OLLAMA_HOST=http://host.docker.internal:11434 and stop in-stack Ollama).
-#   OLLAMA_HEALTHCHECK_URL=http://127.0.0.1:11434/api/tags  — probe URL for lumax_ollama_backup healthcheck (container-internal host/port).
+#   OLLAMA_DEBUG=-1 — Ollama slog WARN+ (quieter than default INFO).
+#   OLLAMA_HEALTHCHECK_INTERVAL — Docker healthcheck period (default 30s). Probe uses curl GET /api/tags (image installs curl). Rebuild ollama image if healthcheck fails (stale layers).
 # Pull models into the container: scripts/pull_ollama_backup_models.ps1
 
 services:
   # --- OLLAMA: GPU inference for Ollama models (embeddings, helpers, cloud-router, sentry solver, etc.) ---
+  # If this service won't start: `docker compose logs lumax_ollama_backup` — port 11434 in use, bad volume path, or GPU scheduling (comment out `deploy` below for CPU-only).
   lumax_ollama_backup:
     build:
       context: ./Backend/Mind/Cognition/Ollama
       dockerfile: Dockerfile
     image: lumax_ollama_backup:latest
     container_name: lumax_ollama_backup
+    restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
@@ -28,7 +36,8 @@ services:
     environment:
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - OLLAMA_MODELS=/app/models/Ollama
-      - OLLAMA_HEALTHCHECK_URL=${OLLAMA_HEALTHCHECK_URL:-http://127.0.0.1:11434/api/tags}
+      # Ollama internal slog: -1 => WARN+ (suppresses routine INFO). Override in .env with OLLAMA_DEBUG=1 when debugging.
+      - OLLAMA_DEBUG=${OLLAMA_DEBUG:--1}
     deploy:
       resources:
         reservations:
@@ -37,11 +46,13 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf $${OLLAMA_HEALTHCHECK_URL} || exit 1"]
-      interval: 20s
+      # curl is installed in Backend/Mind/Cognition/Ollama/Dockerfile — more reliable than nc across base image variants.
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:11434/api/tags"]
+      # Default 30s so service_healthy resolves in ~1–2 min; 300s delays first probe and blocks soul/ops for minutes.
+      interval: ${OLLAMA_HEALTHCHECK_INTERVAL:-30s}
       timeout: 5s
-      retries: 6
-      start_period: 45s
+      retries: 8
+      start_period: 120s
     networks:
       - lumax_local
 
@@ -77,8 +88,9 @@ services:
     depends_on:
       lumax_memory:
         condition: service_started
+      # Match lumax_ops: start even if Ollama is still warming up; compagent retries OLLAMA_HOST. Use service_healthy if you must block until :11434 is up.
       lumax_ollama_backup:
-        condition: service_healthy
+        condition: service_started
     ports:
       # Quest / same-LAN Godot: point res://lumax_network_config.json at this PC's LAN IP (soul_host / pc_lan_ip); client uses :8000 automatically.
       - "8000:8000"
@@ -110,7 +122,7 @@ services:
       - STT_SERVICE_URL=http://lumax_body:8001/stt
       - TTS_SERVICE_URL=http://lumax_body:8002/tts
       - TTS_ENGINE=TURBO
-      - CREATIVE_SERVICE_URL=http://lumax_creativity:8004
+      - CREATIVE_SERVICE_URL=http://lumax_creativity:8003
       # Home Assistant (HomeCore). Default: in-stack service; override HA_URL in .env if HA runs on host only.
       - HA_URL=${HA_URL:-http://lumax_homeassistant:8123/api}
       - HA_TOKEN=${HA_TOKEN:-}
@@ -149,7 +161,8 @@ services:
       - LUMAX_REPERTOIRE_OPENAI_MODEL=${LUMAX_REPERTOIRE_OPENAI_MODEL:-}
       - LUMAX_REPERTOIRE_OPENAI_BASE_URL=${LUMAX_REPERTOIRE_OPENAI_BASE_URL:-}
       - LUMAX_REPERTOIRE_GEMINI_API_KEY=${LUMAX_REPERTOIRE_GEMINI_API_KEY:-}
-      - LUMAX_REPERTOIRE_GEMINI_MODEL=${LUMAX_REPERTOIRE_GEMINI_MODEL:-}
+      # Flash tier default (quota-friendly vs Pro). Override if your project uses another id (see ai.google.dev models).
+      - LUMAX_REPERTOIRE_GEMINI_MODEL=${LUMAX_REPERTOIRE_GEMINI_MODEL:-gemini-3.1-flash}
       - LUMAX_REPERTOIRE_GEMINI_BASE_URL=${LUMAX_REPERTOIRE_GEMINI_BASE_URL:-}
       - LUMAX_REPERTOIRE_EXTRA_API_KEY=${LUMAX_REPERTOIRE_EXTRA_API_KEY:-}
       - LUMAX_REPERTOIRE_EXTRA_MODEL=${LUMAX_REPERTOIRE_EXTRA_MODEL:-}
@@ -162,6 +175,9 @@ services:
       - LUMAX_OPENAI_DAILY_MAX_REQUESTS=${LUMAX_OPENAI_DAILY_MAX_REQUESTS:-0}
       - LUMAX_OPENAI_USAGE_STATE_PATH=${LUMAX_OPENAI_USAGE_STATE_PATH:-}
       - LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS=${LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS:-}
+      # Global paid GenAI cap (Gemini/OpenAI/EXTRA /chat/completions). 0 = unlimited. Shared file with lumax_ops if path is default.
+      - LUMAX_CLOUD_GENAI_DAILY_MAX=${LUMAX_CLOUD_GENAI_DAILY_MAX:-0}
+      - LUMAX_CLOUD_GENAI_USAGE_PATH=${LUMAX_CLOUD_GENAI_USAGE_PATH:-}
       # Soft runtime governor (adaptive local budget + cloud spillover)
       - LUMAX_SOFT_GOV_ENABLED=${LUMAX_SOFT_GOV_ENABLED:-true}
       - LUMAX_SOFT_CPU_HOT_PCT=${LUMAX_SOFT_CPU_HOT_PCT:-550}
@@ -177,9 +193,6 @@ services:
   lumax_body:
     image: lumax_unified:latest
     container_name: lumax_body
-    depends_on:
-      lumax_turbochat:
-        condition: service_started
     ports:
       - "8001:8001" # EARS (STT)
       - "8002:8002" # MOUTH (TTS)
@@ -199,8 +212,17 @@ services:
       - ${LUMAX_PIPER_MODEL_DIR:-/d/Lumax/models/Body/Mouth/Speech/tts-piper-amy/en/en_US/amy/medium}:/app/models/Mouth
     environment:
       - TURBO_URL=http://lumax_turbochat:8005
+      # Mouth TTS routing: turbo = lumax_turbochat XTTS; chatterbox = Resemble (emotional speech). Piper fallback is automatic if Chatterbox errors (body_interface.py).
+      - LUMAX_TTS_BACKEND=${LUMAX_TTS_BACKEND:-chatterbox}
+      - LUMAX_TTS_BACKEND_FILE=/app/Backend/preflight/tts_backend
+      - LUMAX_CHATTERBOX_HTTP_URL=${LUMAX_CHATTERBOX_HTTP_URL:-http://lumax_chatterbox_resemble:8004}
+      - LUMAX_CHATTERBOX_DEFAULT_VOICE=${LUMAX_CHATTERBOX_DEFAULT_VOICE:-Emily.wav}
       - TTS_ENGINE=TURBO
       - DEFAULT_TTS_ENGINE=TURBO
+      # Mouth → turbochat speaker_id: basename of audio_ref/<id>.wav on XTTS model mount
+      - LUMAX_DEFAULT_TTS_VOICE=${LUMAX_DEFAULT_TTS_VOICE:-female_american1-lumba}
+      # Optional: first non-# line overrides default without API (hot-reload per request); or use PUT /tts/default_voice
+      # - LUMAX_TTS_DEFAULT_VOICE_FILE=/app/Backend/preflight/tts_default_voice.txt
       - HF_HOME=/root/.cache/huggingface
       - XDG_CACHE_HOME=/root/.cache
       - PIPER_MODEL_PATH=/app/models/Mouth/en_US-amy-medium.onnx
@@ -214,17 +236,49 @@ services:
     image: lumax_unified:latest
     container_name: lumax_creativity
     ports:
-      - "8004:8004"
-    command: ["python", "-c", "import sys; sys.path.append('/app/Backend/Mind/Creativity'); import uvicorn; from creative_service import app; uvicorn.run(app, host='0.0.0.0', port=8004)"]
+      - "8003:8003"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Pip stack for Dream: matches Backend/Mind/Creativity/requirements.txt when the image predates these deps.
+    # Weights stay on LUMAX_MODELS_ROOT / InvokeAI models mounts — do not mount Invoke's venv unless PYTHONPATH matches container Python.
+    command:
+      - sh
+      - -c
+      - |
+        python -m pip install -q spandrel diffusers transformers accelerate safetensors &&
+        python -m pip install -q xformers || true &&
+        python -c "import sys; sys.path.append('/app/Backend/Mind/Creativity'); import uvicorn; from creative_service import app; uvicorn.run(app, host='0.0.0.0', port=8003)"
     volumes:
       - .:/app
       - ${LUMAX_MODELS_ROOT:-/d/Lumax/models}:/app/models
+      # InvokeAI models dir → /invokeai/models (inventory CSV merges Spandrel + optional SD1 ControlNets). Override in .env.
+      # Default stub keeps compose portable; point LUMAX_INVOKEAI_MODELS_HOST at your real InvokeAI `models` folder.
+      - ${LUMAX_INVOKEAI_MODELS_HOST:-./tools/invokeai_models_mount_stub}:/invokeai/models:ro
     environment:
       - MODE=CREATIVITY
-      - LUMAX_CREATIVITY_IMAGEN_ROOT=${LUMAX_CREATIVITY_IMAGEN_ROOT:-/app/models/Imagen}
-      - LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR=${LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR:-/app/models/Mind/Creativity/Imagen/sdxl-turbo-tensorrt}
+      # Pass-through for logs / hints (container sees weights under /app/models from the volume mount).
+      - LUMAX_MODELS_ROOT=${LUMAX_MODELS_ROOT:-}
+      # Host: D:\Lumax\models → /app/models — Imagen tree lives under Mind/Creativity/Imagen
+      - LUMAX_CREATIVITY_IMAGEN_ROOT=${LUMAX_CREATIVITY_IMAGEN_ROOT:-/app/models/Mind/Creativity/Imagen}
+      # 5GB SDXL Turbo TRT bundle (unetxl.opt); default is under IMAGEN_ROOT/sdxl-turbo-tensorrt
+      - LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR=${LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR:-}
+      # Optional: full Optimum ORT export with model_index.json (not unet_fp16.onnx alone)
+      - LUMAX_CREATIVITY_SD14_ONNX_DIR=${LUMAX_CREATIVITY_SD14_ONNX_DIR:-}
+      - LUMAX_CREATIVITY_SD15_MODEL_ID=${LUMAX_CREATIVITY_SD15_MODEL_ID:-}
       - LUMAX_CREATIVITY_DEFAULT_INFERENCE_STEPS=${LUMAX_CREATIVITY_DEFAULT_INFERENCE_STEPS:-5}
       - LUMAX_CREATIVITY_DEFAULT_MODEL_TYPE=${LUMAX_CREATIVITY_DEFAULT_MODEL_TYPE:-turbo}
+      # Inside the container, models are always at this mount (matches volume above).
+      - LUMAX_INVOKEAI_MODELS_ROOT=${LUMAX_INVOKEAI_MODELS_ROOT:-/invokeai/models}
+      # Merge SD1.x ControlNet rows from invokeai_models_inventory.csv (opt out: 0|false).
+      - LUMAX_INVOKEAI_MERGE_CONTROLNETS=${LUMAX_INVOKEAI_MERGE_CONTROLNETS:-1}
+      - LUMAX_INVOKEAI_MODELS_CSV=${LUMAX_INVOKEAI_MODELS_CSV:-}
+      # Optional: prepend InvokeAI venv site-packages you bind-mount (same Python as container; torch must match).
+      - PYTHONPATH=${LUMAX_INVOKEAI_PYTHONPATH:-}
     networks:
       - lumax_local
 
@@ -233,37 +287,80 @@ services:
     image: lumax_unified:latest
     container_name: lumax_ops
     depends_on:
+      # Web UI + sentry can run while Ollama warms up; sentry retries OLLAMA_HOST. (Soul still waits for healthy Ollama.)
       lumax_ollama_backup:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "8080:8080" # WEB UI
       - "8006:8006" # SENTRY
-    # RUN WEB APP AND SENTRY IN ONE CONTAINER (Web UI → Frontend/Body/Webui)
-    command: >
-      sh -c "python -m uvicorn web_app:app --app-dir /app/Frontend/Body/Webui --host 0.0.0.0 --port 8080 --log-level warning --no-access-log &
-             python /app/Backend/autonomous_sentry.py"
+    # RUN WEB APP AND SENTRY IN ONE CONTAINER (Web UI → Frontend/Body/Webui).
+    # scripts/run_lumax_ops.sh runs lumax_ops_webui_bootstrap.py first (self-heal missing pip deps if image is stale).
+    # Strip CRLF when repo is checked out on Windows (volume .:/app); else set/python see paths ending in \r.
+    command:
+      - sh
+      - -c
+      - sed -i 's/\r$//' /app/scripts/run_lumax_ops.sh; exec sh /app/scripts/run_lumax_ops.sh
     volumes:
       - .:/app
       - ollama:/root/.ollama
+      # Host Docker API (lumax_ops sentry: docker compose / restart heal). Root-equivalent access — do not expose 8080 on untrusted networks.
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      # Pass through from host .env so in-container `docker compose` uses the same project as your stack.
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-}
+      # Web UI GPU switch: docker compose cwd (default /app from web_app path when unset).
+      - LUMAX_REPO_ROOT=${LUMAX_REPO_ROOT:-}
       - SOUL_URL=http://lumax_soul:8000
+      - CREATIVE_SERVICE_URL=http://lumax_creativity:8003
       - EARS_URL=http://lumax_body:8001
-      # Web UI (8080): set LUMAX_WEBUI_PASSWORD in .env before exposing the port on untrusted networks.
+      - MOUTH_URL=http://lumax_body:8002
+      # Chatterbox iframe URL (host port); default 8004 (creativity uses host :8003).
+      - CHATTERBOX_UI_PORT=${CHATTERBOX_UI_PORT:-8004}
+      # Web UI (8080): set LUMAX_WEBUI_PASSWORD in .env (passed through here — not duplicated). Startup fails if empty unless LUMAX_WEBUI_ALLOW_INSECURE=1.
+      # Local dev without a password: LUMAX_WEBUI_ALLOW_INSECURE=1 (never on public networks).
+      # Set LUMAX_OPS_WEBUI_BOOTSTRAP=0 for air-gapped hosts (no pip download on start).
+      - LUMAX_OPS_WEBUI_BOOTSTRAP=${LUMAX_OPS_WEBUI_BOOTSTRAP:-1}
+      - LUMAX_WEBUI_ALLOW_INSECURE=${LUMAX_WEBUI_ALLOW_INSECURE:-0}
       - LUMAX_WEBUI_PASSWORD=${LUMAX_WEBUI_PASSWORD:-}
       - LUMAX_WEBUI_SESSION_SECRET=${LUMAX_WEBUI_SESSION_SECRET:-}
       - LUMAX_WEBUI_SESSION_MAX_AGE=${LUMAX_WEBUI_SESSION_MAX_AGE:-604800}
       - LUMAX_WEBUI_SESSION_COOKIE=${LUMAX_WEBUI_SESSION_COOKIE:-lumax_webui_session}
+      # Comma-separated origins for mobile/Capacitor or Vite dev (e.g. http://192.168.1.10:5173) — empty = no CORS.
+      - LUMAX_WEBUI_CORS_ORIGINS=${LUMAX_WEBUI_CORS_ORIGINS:-}
+      # Web UI: auto-reload uvicorn when bind-mounted Python/HTML under Webui changes (default on). Set 0 in production if undesired.
+      - LUMAX_WEBUI_RELOAD=${LUMAX_WEBUI_RELOAD:-1}
       - SENTRY_MODE=ACTIVE
       # Backend preflight in sentry loop: light|standard|deep
       - LUMAX_PREFLIGHT_LEVEL=${LUMAX_PREFLIGHT_LEVEL:-light}
       - LUMAX_PREFLIGHT_AUTOHEAL=${LUMAX_PREFLIGHT_AUTOHEAL:-true}
       # Agentic healer (safe action whitelist in Backend/preflight/agentic_solver.py)
       - LUMAX_SENTRY_AGENTIC=${LUMAX_SENTRY_AGENTIC:-true}
+      # command | ollama | repertoire (alias cloud) — repertoire uses same LUMAX_REPERTOIRE_* API keys as the soul.
       - LUMAX_SENTRY_SOLVER_MODE=${LUMAX_SENTRY_SOLVER_MODE:-command}
       # command mode is ideal for local ONNX/TensorRT runner wrappers.
       - LUMAX_SENTRY_SOLVER_CMD=${LUMAX_SENTRY_SOLVER_CMD:-python /app/scripts/automation/solver_runner.py --model qwen2.5-coder-3b-instruct-onnx --prompt "{prompt}"}
-      # optional ollama fallback mode (same Ollama as lumax_soul by default):
-      - LUMAX_SENTRY_SOLVER_URL=${LUMAX_SENTRY_SOLVER_URL:-http://lumax_ollama_backup:11434/api/generate}
+      # Cloud agentic solver: gemini | openai | extra | rotate | auto (see Backend/preflight/agentic_solver.py)
+      - LUMAX_SENTRY_REPERTOIRE_SLOT=${LUMAX_SENTRY_REPERTOIRE_SLOT:-gemini}
+      - LUMAX_SENTRY_REPERTOIRE_MAX_TOKENS=${LUMAX_SENTRY_REPERTOIRE_MAX_TOKENS:-768}
+      - LUMAX_REPERTOIRE_OPENAI_API_KEY=${LUMAX_REPERTOIRE_OPENAI_API_KEY:-}
+      - LUMAX_REPERTOIRE_OPENAI_MODEL=${LUMAX_REPERTOIRE_OPENAI_MODEL:-}
+      - LUMAX_REPERTOIRE_OPENAI_BASE_URL=${LUMAX_REPERTOIRE_OPENAI_BASE_URL:-}
+      - LUMAX_REPERTOIRE_GEMINI_API_KEY=${LUMAX_REPERTOIRE_GEMINI_API_KEY:-}
+      - LUMAX_REPERTOIRE_GEMINI_MODEL=${LUMAX_REPERTOIRE_GEMINI_MODEL:-gemini-3.1-flash}
+      - LUMAX_REPERTOIRE_GEMINI_BASE_URL=${LUMAX_REPERTOIRE_GEMINI_BASE_URL:-}
+      - LUMAX_REPERTOIRE_EXTRA_API_KEY=${LUMAX_REPERTOIRE_EXTRA_API_KEY:-}
+      - LUMAX_REPERTOIRE_EXTRA_MODEL=${LUMAX_REPERTOIRE_EXTRA_MODEL:-}
+      - LUMAX_REPERTOIRE_EXTRA_BASE_URL=${LUMAX_REPERTOIRE_EXTRA_BASE_URL:-}
+      - LUMAX_OPENAI_DAILY_MAX_REQUESTS=${LUMAX_OPENAI_DAILY_MAX_REQUESTS:-0}
+      - LUMAX_OPENAI_USAGE_STATE_PATH=${LUMAX_OPENAI_USAGE_STATE_PATH:-}
+      - LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS=${LUMAX_REPERTOIRE_OPENAI_MAX_TOKENS:-}
+      - LUMAX_CLOUD_GENAI_DAILY_MAX=${LUMAX_CLOUD_GENAI_DAILY_MAX:-0}
+      - LUMAX_CLOUD_GENAI_USAGE_PATH=${LUMAX_CLOUD_GENAI_USAGE_PATH:-}
+      # Agentic solver — Ollama: base from OLLAMA_HOST (below) unless LUMAX_SENTRY_OLLAMA_HOST or legacy LUMAX_SENTRY_SOLVER_URL (full .../api/generate URL) is set.
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://lumax_ollama_backup:11434}
+      - LUMAX_SENTRY_OLLAMA_HOST=${LUMAX_SENTRY_OLLAMA_HOST:-}
+      - LUMAX_SENTRY_SOLVER_HTTP_MODE=${LUMAX_SENTRY_SOLVER_HTTP_MODE:-auto}
+      - LUMAX_SENTRY_SOLVER_URL=${LUMAX_SENTRY_SOLVER_URL:-}
       - LUMAX_SENTRY_SOLVER_MODEL=${LUMAX_SENTRY_SOLVER_MODEL:-qwen2.5-coder:latest}
       - LUMAX_SENTRY_SOLVER_TIMEOUT_SEC=${LUMAX_SENTRY_SOLVER_TIMEOUT_SEC:-20}
       # Pause switches for deployment windows / controlled rollouts.
@@ -311,7 +408,12 @@ services:
       - lumax_local
 
   # --- SPEECH ACCELERATION ---
+  # Chatterbox-style TTS API (:8005): primary engine XTTS v2 (ONNX streaming); intended to host additional suite providers over time.
+  # Originally created as lumax_chatterbox_turbo; renamed lumax_turbochat for a shorter name (same service).
+  # Profile "turbo": leave off default `up -d` so GPU is free for creativity / Chatterbox; Web UI GPU switch + switch_gpu_tts_stack.ps1 pass --profile turbo.
   lumax_turbochat:
+    profiles:
+      - turbo
     build:
       context: .
       dockerfile: Dockerfile.turbo
@@ -330,10 +432,13 @@ services:
               capabilities: [gpu]
     volumes:
       - ${LUMAX_TURBO_MODEL_DIR:-/d/Lumax/models/Body/Mouth/Speech/XTTSv2-Streaming-ONNX}:/app/models
+    environment:
+      - LUMAX_TURBO_DEFAULT_SPEAKER=${LUMAX_TURBO_DEFAULT_SPEAKER:-female_american1-lumba}
     networks:
       - lumax_local
 
   # --- EMBERS: idle soul work (memorize / pan / director / optional dream) — no GPU ---
+  # No `ports:` here — embers only calls SOUL over lumax_local; it does not bind host :8000–:8007 (creativity :8003 is free).
   lumax_embers:
     image: lumax_unified:latest
     container_name: lumax_embers

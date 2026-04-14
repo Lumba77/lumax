@@ -7,6 +7,7 @@ import logging
 import subprocess
 from datetime import datetime, timezone
 from preflight.checks import run_preflight, summarize
+from preflight.json_util import load_playbook_path
 from preflight.agentic_solver import (
     propose_actions,
     propose_architecture_plan,
@@ -20,6 +21,12 @@ _sentry_lvl = getattr(logging, _sentry_lvl_name, logging.WARNING)
 logging.basicConfig(level=_sentry_lvl, format="%(levelname)s [%(name)s] %(message)s")
 logger = logging.getLogger("AutonomousSentry")
 logger.setLevel(_sentry_lvl)
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    v = os.getenv(name, str(default)).strip().lower()
+    return v in ("1", "true", "yes", "on")
+
 
 # Same file connect_quest.ps1 writes (repo mounted at /app). Sentry refreshes quest_ip + reverses.
 QUEST_NETWORK_CONFIG = os.getenv(
@@ -78,12 +85,51 @@ def _service_health_urls() -> dict[str, str]:
     ears_base = os.getenv("EARS_URL", "http://lumax_body:8001").strip().rstrip("/")
     mouth_base = os.getenv("MOUTH_URL", os.getenv("LUMAX_MOUTH_URL", "http://lumax_body:8002")).strip().rstrip("/")
     turbo_base = os.getenv("TURBO_URL", os.getenv("LUMAX_TURBO_URL", "http://lumax_turbochat:8005")).strip().rstrip("/")
-    return {
+    creative_base = os.getenv(
+        "CREATIVE_SERVICE_URL",
+        "http://lumax_creativity:8003",
+    ).strip().rstrip("/")
+    urls: dict[str, str] = {
         "SOUL": os.getenv("LUMAX_SENTRY_SOUL_HEALTH_URL", f"{soul_base}/health"),
         "EARS": os.getenv("LUMAX_SENTRY_EARS_HEALTH_URL", f"{ears_base}/health"),
         "MOUTH": os.getenv("LUMAX_SENTRY_MOUTH_HEALTH_URL", f"{mouth_base}/health"),
-        "TURBO": os.getenv("LUMAX_SENTRY_TURBO_HEALTH_URL", f"{turbo_base}/health"),
     }
+    # Turbo health is only relevant when mouth backend is turbo.
+    tts_backend = _resolved_tts_backend()
+    if tts_backend == "turbo":
+        urls["TURBO"] = os.getenv("LUMAX_SENTRY_TURBO_HEALTH_URL", f"{turbo_base}/health")
+    # Creativity (dream) on :8003 — lumax_embers does not publish host ports; conflict on 8003 is never from embers.
+    if _bool_env("LUMAX_SENTRY_CHECK_CREATIVITY", True):
+        cu = os.getenv("LUMAX_SENTRY_CREATIVITY_HEALTH_URL", "").strip()
+        if cu:
+            urls["CREATIVE"] = cu
+        elif creative_base:
+            urls["CREATIVE"] = f"{creative_base}/health"
+    # Same container as uvicorn (127.0.0.1); detects dead Web UI while sentry still runs.
+    if _bool_env("LUMAX_SENTRY_CHECK_WEBUI", True):
+        wu = os.getenv("LUMAX_SENTRY_WEBUI_HEALTH_URL", "http://127.0.0.1:8080/health").strip()
+        if wu:
+            urls["WEBUI"] = wu
+    return urls
+
+
+def _resolved_tts_backend() -> str:
+    """
+    Active mouth stack: turbo or chatterbox.
+    Source order: marker file first, then env, then turbo.
+    """
+    marker = os.getenv("LUMAX_TTS_BACKEND_FILE", "/app/Backend/preflight/tts_backend").strip()
+    if marker:
+        try:
+            if os.path.isfile(marker):
+                with open(marker, "r", encoding="utf-8-sig") as f:
+                    first = (f.readline() or "").strip().lower()
+                    if first in ("turbo", "chatterbox"):
+                        return first
+        except Exception:
+            pass
+    env_v = os.getenv("LUMAX_TTS_BACKEND", "turbo").strip().lower()
+    return env_v if env_v in ("turbo", "chatterbox") else "turbo"
 
 
 # Resolved once at import; callers may re-read via _service_health_urls() in tests.
@@ -96,10 +142,34 @@ WATCHDOG_POLICY_PATH = os.getenv(
 )
 INBOX_DIR = os.getenv("LUMAX_SENTRY_INBOX_DIR", os.path.join("/app", "Backend", "preflight", "inbox"))
 
+# lumax_ops mounts /var/run/docker.sock; COMPOSE_PROJECT_NAME should match host `docker compose ls`.
+_COMPOSE_FILE = "/app/docker-compose.yml"
 
-def _bool_env(name: str, default: bool = False) -> bool:
-    v = os.getenv(name, str(default)).strip().lower()
-    return v in ("1", "true", "yes", "on")
+
+def _docker_compose_argv() -> list[str]:
+    return ["docker", "compose", "-f", _COMPOSE_FILE]
+
+
+def _run_docker_compose(args: list[str], timeout: float) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        _docker_compose_argv() + args,
+        cwd="/app",
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _docker_restart(container: str, timeout: float = 40.0) -> subprocess.CompletedProcess:
+    """Restart by container name — avoids compose project mismatch when cwd is /app."""
+    return subprocess.run(
+        ["docker", "restart", container],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def _network_config_canonical_json(data: dict) -> str:
@@ -130,13 +200,13 @@ def _load_watchdog_policy() -> dict:
             "restart_service_soul",
             "restart_service_body",
             "restart_service_turbo",
+            "restart_service_ops",
             "rebuild_service_soul",
         ],
     }
     try:
         if os.path.isfile(WATCHDOG_POLICY_PATH):
-            with open(WATCHDOG_POLICY_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = load_playbook_path(WATCHDOG_POLICY_PATH, encoding="utf-8-sig")
             if isinstance(data, dict):
                 default.update(data)
     except Exception as e:
@@ -226,7 +296,7 @@ def _speak_watchdog_answer(question: str, answer: str) -> None:
     if not _bool_env("LUMAX_SENTRY_SPEAK_ANSWERS", False):
         return
     tts_url = os.getenv("LUMAX_SENTRY_TTS_URL", "http://lumax_body:8002/tts").strip()
-    voice = os.getenv("LUMAX_SENTRY_TTS_VOICE", "female").strip()
+    voice = os.getenv("LUMAX_SENTRY_TTS_VOICE", "female_american1-lumba").strip()
     engine = os.getenv("LUMAX_SENTRY_TTS_ENGINE", "TURBO").strip()
     max_chars = int(os.getenv("LUMAX_SENTRY_TTS_MAX_CHARS", "320"))
     # Keep spoken output short and useful.
@@ -330,7 +400,7 @@ def _action_allowed(action: str, policy: dict) -> bool:
         return bool(actions.get("allow_docker_compose_up", False))
     if action == "bridge_reverse":
         return bool(actions.get("allow_bridge_reverse", True))
-    if action in ("restart_service_soul", "restart_service_body", "restart_service_turbo"):
+    if action in ("restart_service_soul", "restart_service_body", "restart_service_turbo", "restart_service_ops"):
         return bool(actions.get("allow_service_restart", False))
     if action == "rebuild_service_soul":
         # Rebuild requires compose build/up permissions.
@@ -488,7 +558,7 @@ def establish_neural_bridge():
         return
     logger.debug("--- Sovereign Bridge: Heartbeat (ADB Tunnels) ---")
     # All essential ports for Jen's Manifestation and Brain connectivity (match connect_quest.ps1 / push_all.ps1)
-    ports = [8000, 8001, 8002, 8004, 8005, 8006, 8020, 8080, 6006, 6007, 6379]
+    ports = [8000, 8001, 8002, 8003, 8004, 8005, 8006, 8020, 8080, 6006, 6007, 6379]
 
     # Verify we can even reach the host ADB server first
     try:
@@ -535,8 +605,7 @@ def _execute_heal_actions(actions: list[str], policy: dict, failures: dict, solv
             continue
         if action == "docker_compose_up":
             try:
-                # Runs inside container only when docker cli/socket are available.
-                res = subprocess.run(["docker", "compose", "up", "-d"], capture_output=True, text=True, timeout=45)
+                res = _run_docker_compose(["up", "-d"], timeout=45)
                 if res.returncode == 0:
                     logger.debug("🛠️ Heal action docker_compose_up: OK")
                 else:
@@ -560,26 +629,24 @@ def _execute_heal_actions(actions: list[str], policy: dict, failures: dict, solv
             pf = run_preflight(level="deep", autoheal=True)
             logger.debug("🧪 Preflight(deep): %s", summarize(pf))
         elif action == "restart_service_soul":
-            res = subprocess.run(["docker", "compose", "restart", "lumax_soul"], capture_output=True, text=True, timeout=40)
+            res = _docker_restart("lumax_soul")
             logger.debug("🛠️ restart_service_soul rc=%s", res.returncode)
         elif action == "restart_service_body":
-            res = subprocess.run(["docker", "compose", "restart", "lumax_body"], capture_output=True, text=True, timeout=40)
+            res = _docker_restart("lumax_body")
             logger.debug("🛠️ restart_service_body rc=%s", res.returncode)
         elif action == "restart_service_turbo":
-            res = subprocess.run(["docker", "compose", "restart", "lumax_turbochat"], capture_output=True, text=True, timeout=40)
+            res = _docker_restart("lumax_turbochat")
             logger.debug("🛠️ restart_service_turbo rc=%s", res.returncode)
+        elif action == "restart_service_ops":
+            res = _docker_restart("lumax_ops")
+            logger.debug("🛠️ restart_service_ops rc=%s", res.returncode)
         elif action == "rebuild_service_soul":
             try:
-                build = subprocess.run(["docker", "compose", "build", "lumax_soul"], capture_output=True, text=True, timeout=1800)
+                build = _run_docker_compose(["build", "lumax_soul"], timeout=1800)
                 if build.returncode != 0:
                     logger.warning("🛠️ rebuild_service_soul build failed: %s", (build.stderr or "").strip()[:300])
                     continue
-                up = subprocess.run(
-                    ["docker", "compose", "up", "-d", "--force-recreate", "lumax_soul"],
-                    capture_output=True,
-                    text=True,
-                    timeout=240,
-                )
+                up = _run_docker_compose(["up", "-d", "--force-recreate", "lumax_soul"], timeout=240)
                 logger.debug("🛠️ rebuild_service_soul up rc=%s", up.returncode)
                 if up.returncode != 0:
                     logger.warning("🛠️ rebuild_service_soul up failed: %s", (up.stderr or "").strip()[:300])

@@ -1,44 +1,144 @@
 FROM lumax_core:latest
 
+
+
 WORKDIR /app
 
-# Install system dependencies for build and runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    portaudio19-dev \
-    libasound2-dev \
-    libsndfile1-dev \
-    build-essential \
-    cmake \
-    git \
-    ffmpeg \
-    espeak-ng \
-    adb \
+
+
+# Tiny apt slice first (rarely changes). Full apt comes AFTER llama-cpp so editing portaudio/ffmpeg/docker
+
+# does not invalidate the ~1.5GB CUDA wheel layer.
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+
     && rm -rf /var/lib/apt/lists/*
 
-# Donor image already contains the heavy Python stack.
-# Split layers so editing pip deps does not always rerun llama-cpp.
-# Do NOT use --no-cache-dir here: it disables the mounted pip cache and forces a full ~1.5GB wheel re-download every build.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install compressed-tensors "optimum[onnxruntime]"
 
-# Reinstall CUDA wheel only when needed. If lumax_core already ships matching cu124 llama-cpp, set build-arg below to skip.
+
+# ~1.5GB CUDA wheel: keep this RUN high in the file. Only rebuilds when this block, SKIP_LLAMA_CPP_REINSTALL,
+
+# or lumax_core changes — not when you edit apt packages or lighter pip deps below.
+
+# Pip cache mount: reuse wheel in /root/.cache/pip across builds. Do not use --no-cache-dir here.
+
 ARG SKIP_LLAMA_CPP_REINSTALL=0
+
 RUN --mount=type=cache,target=/root/.cache/pip \
+
     if [ "$SKIP_LLAMA_CPP_REINSTALL" = "1" ]; then \
+
       echo "SKIP_LLAMA_CPP_REINSTALL=1: using llama-cpp-python from lumax_core"; \
+
     else \
+
       python -m pip uninstall -y llama-cpp-python || true && \
+
       python -m pip install \
+
         --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+
         --extra-index-url https://pypi.org/simple \
+
         llama-cpp-python; \
+
     fi
 
+
+
+# Install system dependencies for build and runtime (edit freely — does not bust llama-cpp layer above).
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+
+    curl \
+
+    portaudio19-dev \
+
+    libasound2-dev \
+
+    libsndfile1-dev \
+
+    build-essential \
+
+    cmake \
+
+    git \
+
+    ffmpeg \
+
+    espeak-ng \
+
+    adb \
+
+    && rm -rf /var/lib/apt/lists/*
+
+
+
+# Docker CLI + Compose v2 plugin (lumax_ops mounts /var/run/docker.sock — grants host Docker API; keep port 8080 off untrusted networks).
+
+ARG DOCKER_VERSION=27.3.1
+
+ARG DOCKER_COMPOSE_VERSION=2.31.0
+
+RUN set -eu; \
+
+    ARCH="$(dpkg --print-architecture)"; \
+
+    case "$ARCH" in \
+
+      amd64) DARCH=x86_64; CARCH=x86_64 ;; \
+
+      arm64) DARCH=aarch64; CARCH=aarch64 ;; \
+
+      *) echo "unsupported arch: $ARCH"; exit 1 ;; \
+
+    esac; \
+
+    curl -fsSL "https://download.docker.com/linux/static/stable/${DARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/d.tgz; \
+
+    tar -xzf /tmp/d.tgz -C /tmp; \
+
+    mv /tmp/docker/docker /usr/local/bin/docker; \
+
+    rm -rf /tmp/docker /tmp/d.tgz; \
+
+    mkdir -p /usr/local/lib/docker/cli-plugins; \
+
+    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${CARCH}" \
+
+      -o /usr/local/lib/docker/cli-plugins/docker-compose; \
+
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+
+
+# Donor image already contains the heavy Python stack.
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+
+    python -m pip install itsdangerous json5
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+
+    python -m pip install compressed-tensors "optimum[onnxruntime]" spandrel \
+
+        diffusers transformers accelerate xformers safetensors
+
+
+
 COPY Backend/Body/run_lumax_body_dual.sh /app/Backend/Body/run_lumax_body_dual.sh
+
 RUN chmod +x /app/Backend/Body/run_lumax_body_dual.sh
 
-# Expose all used ports (8001=EARS/STT, 8002=MOUTH/TTS)
-EXPOSE 8000 8001 8002 8004 8006 8080
+
+
+# Declared ports for documentation only (docker ps). Does NOT publish to host — compose `ports:` does that.
+# 8000 soul, 8001 EARS, 8002 MOUTH, 8003 creativity, 8004 Chatterbox UI, 8005 turbochat, 8006 sentry, 8080 Web UI.
+EXPOSE 8000 8001 8002 8003 8004 8005 8006 8080
+
+
 
 # Default CMD (can be overridden)
+
 CMD ["python", "Backend/Mind/Cognition/compagent.py"]
+
