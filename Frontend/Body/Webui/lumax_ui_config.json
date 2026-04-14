@@ -2,11 +2,8 @@
   "version": 1,
   "global": {
     "ready_message": "Connected. Lumax Web UI is ready.",
-    "site_name": "Lumax.se",
     "slogan": "Your everything for life.",
-    "jen_voice_id": "female_american1-lumba.wav",
-    "jen_tts_engine": "TURBO",
-    "jen_voice_note": "Use this voice id + engine for every shell (Web, Mobile, Desktop) when calling lumax_body POST /tts. VR: prefer soul-returned audio or the same mouth URL so Jen sounds like one person."
+    "site_name": "Lumax.se"
   },
   "web": {
     "page_title": "Lumax — 1um6a.se",
@@ -38,8 +35,9 @@
       "NUCLEUS": "Debug",
       "UTILS": "Announcments",
       "CHATTERBOX": "Chatterbox",
-      "CHECKUP": "SYSTEM CHECK",
-      "BRANDING": "Site editor"
+      "CHECKUP": "System tests",
+      "BRANDING": "Site editor",
+      "FEATUREMAP": "Feature map"
     },
     "chat_placeholder": "Feedback to Lumax",
     "utils_title": "Announcements",

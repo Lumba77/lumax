@@ -19,6 +19,8 @@ from starlette.middleware.sessions import SessionMiddleware
 import httpx
 import uvicorn
 
+from feature_inventory_parser import parse_feature_inventory_markdown
+
 # Configure Logging (routine request logs: uvicorn access_log off by default)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "WARNING"))
 logger = logging.getLogger("WebAppBridge")
@@ -78,6 +80,12 @@ def _webui_session_secret() -> str:
 @asynccontextmanager
 async def _webui_lifespan(_app: FastAPI):
     _validate_webui_auth_config()
+    _p = {getattr(r, "path", None) for r in _app.routes if hasattr(r, "path")}
+    if "/api/feature_inventory" not in _p and "/api/fmap" not in _p:
+        logger.error(
+            "web_app startup: feature map routes missing from app.routes (have %s total path routes)",
+            len([x for x in _p if x]),
+        )
     yield
 
 
@@ -172,14 +180,17 @@ async def auth_logout(request: Request) -> dict[str, bool]:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Lightweight liveness for lumax_ops / AutonomousSentry (no login; keep port 8080 off public networks)."""
+    paths = {getattr(r, "path", "") for r in app.routes if hasattr(r, "path")}
     return {
         "status": "ok",
         "service": "lumax_webui",
+        "web_app_file": str(Path(__file__).resolve()),
         # Confirms this process includes TTS proxy + GPU switch (if missing, Web UI image/volume is stale).
         "tts_routes": {
             "GET_PUT": "/api/tts/backend",
             "POST": "/api/tts/gpu_stack",
         },
+        "feature_map_ok": "/api/feature_inventory" in paths or "/api/fmap" in paths,
     }
 
 
@@ -207,6 +218,8 @@ _PIPELINE_DUMMY_WAV_B64 = base64.b64encode(
 ).decode("ascii")
 _SOUL_PIPELINE_ERR_MARKERS = ("cognition error", "error:", "exceed context", "context window")
 
+_feature_inventory_cache: tuple[str, float, dict[str, Any]] | None = None
+
 
 def _repo_root() -> str:
     """Repo root for `docker compose -f docker-compose.yml` (Docker: /app; dev: Lumax checkout)."""
@@ -218,6 +231,55 @@ def _repo_root() -> str:
 
 
 _REPO_ROOT = _repo_root()
+
+
+def _feature_inventory_markdown_path() -> Path | None:
+    """Resolve FEATURE_INVENTORY.md: env override, then walk up from this package (finds /app/... with bind mount)."""
+    explicit = os.getenv("LUMAX_FEATURE_INVENTORY_PATH", "").strip()
+    if explicit:
+        p = Path(explicit)
+        if p.is_file():
+            return p.resolve()
+    here = Path(BASE_DIR).resolve()
+    for anc in [here, *here.parents]:
+        cand = anc / "FEATURE_INVENTORY.md"
+        if cand.is_file():
+            return cand.resolve()
+    docker_default = Path("/app") / "FEATURE_INVENTORY.md"
+    if docker_default.is_file():
+        return docker_default.resolve()
+    return None
+
+
+def _feature_inventory_payload() -> dict[str, Any]:
+    """Build JSON for Feature Map tab (cached by path + mtime)."""
+    global _feature_inventory_cache
+    path = _feature_inventory_markdown_path()
+    if path is None:
+        hint = Path(BASE_DIR).resolve()
+        return {
+            "ok": False,
+            "error": "not_found",
+            "path": "",
+            "detail": (
+                "FEATURE_INVENTORY.md not found. Expected at repo root next to docker-compose.yml "
+                f"(searched upward from {hint}). In Docker, ensure `.:/app` mount and `/app/FEATURE_INVENTORY.md` exists. "
+                "Or set LUMAX_FEATURE_INVENTORY_PATH to an absolute path inside the container."
+            ),
+        }
+    mtime = path.stat().st_mtime
+    key = str(path)
+    if (
+        _feature_inventory_cache is not None
+        and _feature_inventory_cache[0] == key
+        and _feature_inventory_cache[1] == mtime
+    ):
+        return {"ok": True, **_feature_inventory_cache[2]}
+    text = path.read_text(encoding="utf-8")
+    data = parse_feature_inventory_markdown(text)
+    data["source_file"] = str(path.resolve())
+    _feature_inventory_cache = (key, mtime, data)
+    return {"ok": True, **data}
 
 
 class GpuTtsStackBody(BaseModel):
@@ -245,6 +307,7 @@ _BRAND_NAV_KEYS = frozenset(
         "CHATTERBOX",
         "CHECKUP",
         "BRANDING",
+        "FEATUREMAP",
     )
 )
 _BRAND_GROUP_KEYS = frozenset(("cognition", "manifestation", "agency", "laboratory", "utilities"))
@@ -291,6 +354,7 @@ def _default_branding() -> dict[str, Any]:
             "CHATTERBOX": "CHATTERBOX (TTS)",
             "CHECKUP": "SYSTEM CHECK",
             "BRANDING": "LABEL EDITOR",
+            "FEATUREMAP": "FEATURE MAP",
         },
         "chat_placeholder": "Transmit thoughts to Jen...",
         "utils_title": "Announcements",
@@ -569,8 +633,12 @@ def _load_announcements():
     return dict(_DEFAULT_ANNOUNCEMENTS)
 
 @app.get("/", response_class=HTMLResponse)
-async def get_index():
-    return FileResponse(os.path.join(BASE_DIR, "index.html"))
+async def get_index() -> FileResponse:
+    """Serve shell HTML; avoid stale copies in the browser after `git pull` or local edits."""
+    return FileResponse(
+        os.path.join(BASE_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 @app.get("/manifest.json")
 async def get_manifest():
@@ -1191,7 +1259,7 @@ async def _tts_gpu_stack_run(body: GpuTtsStackBody) -> dict[str, Any]:
                 check=False,
             )
             r = subprocess.run(
-                compose + ["up", "-d", "lumax_turbochat"],
+                compose + ["--profile", "turbo", "up", "-d", "lumax_turbochat"],
                 cwd=_REPO_ROOT,
                 timeout=_compose_timeout_sec(False),
                 capture_output=True,
@@ -1227,6 +1295,13 @@ async def api_tts_gpu_stack(body: GpuTtsStackBody, _auth: None = Depends(require
 @app.post("/api/tts/gpu-stack")
 async def api_tts_gpu_stack_hyphen(body: GpuTtsStackBody, _auth: None = Depends(require_webui_login)):
     return await _tts_gpu_stack_run(body)
+
+
+@app.get("/api/feature_inventory")
+@app.get("/api/fmap")
+async def api_feature_inventory() -> dict[str, Any]:
+    """Parsed FEATURE_INVENTORY.md for the Feature Map tab (filters client-side). Public read like GET /api/ui_config."""
+    return _feature_inventory_payload()
 
 
 if __name__ == "__main__":

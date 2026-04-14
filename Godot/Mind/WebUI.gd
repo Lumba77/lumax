@@ -7,13 +7,17 @@ signal brain_selected(model_name: String)
 signal low_vram_toggled()
 signal vision_sensing_requested()
 signal files_requested()
+signal file_activation_requested(path: String)
 signal archive_requested()
 signal dream_requested()
 signal system_check_requested()
 signal soul_verification_requested()
 signal user_certification_requested()
+signal emotion_stimulus_requested(emotion_name: String)
 ## Indices match `SkeletonKey.QuestDisplayMode`: 0 Auto, 1 Pure passthrough, 2 XR mixed, 3 VR.
 signal quest_display_mode_selected(mode_index: int)
+## Indices match `SkeletonKey.XRFlowProfile`: 0 Off, 1 Balanced, 2 Performance.
+signal xr_flow_profile_selected(mode_index: int)
 ## Match `MultiVisionHandler.UserVisionSource` / `JenVisionSource` enum ordinals.
 signal user_vision_source_selected(mode_index: int)
 signal jen_vision_source_selected(mode_index: int)
@@ -39,6 +43,7 @@ var _last_host_cpu_pct: float = -1.0
 const STRESS_HOT_PCT := 550.0
 const STRESS_CLEAR_PCT := 300.0
 var _quest_display_ob: OptionButton = null
+var _xr_flow_ob: OptionButton = null
 var _user_vision_ob: OptionButton = null
 var _jen_vision_ob: OptionButton = null
 
@@ -583,6 +588,18 @@ func _populate_settings_list(settings_list: VBoxContainer):
 	_quest_display_ob = ob_q
 	ob_q.item_selected.connect(_on_quest_display_option_selected)
 
+	var h_xrf := HBoxContainer.new(); settings_list.add_child(h_xrf)
+	var l_xrf := Label.new(); l_xrf.text = "XR_FLOW_PROFILE"; l_xrf.custom_minimum_size.x = 200; h_xrf.add_child(l_xrf)
+	var ob_xrf := OptionButton.new()
+	ob_xrf.size_flags_horizontal = SIZE_EXPAND_FILL
+	h_xrf.add_child(ob_xrf)
+	ob_xrf.add_item("Off (no runtime XR tuning)")
+	ob_xrf.add_item("Balanced (recommended)")
+	ob_xrf.add_item("Performance (extra headroom)")
+	ob_xrf.select(1)
+	_xr_flow_ob = ob_xrf
+	ob_xrf.item_selected.connect(_on_xr_flow_profile_option_selected)
+
 	var h_uv := HBoxContainer.new(); settings_list.add_child(h_uv)
 	var l_uv := Label.new(); l_uv.text = "USER_VISION_FEED"; l_uv.custom_minimum_size.x = 200; h_uv.add_child(l_uv)
 	var ob_uv := OptionButton.new(); ob_uv.size_flags_horizontal = SIZE_EXPAND_FILL; h_uv.add_child(ob_uv)
@@ -622,6 +639,12 @@ func _on_quest_display_option_selected(idx: int) -> void:
 	_play_sfx("pop")
 	quest_display_mode_selected.emit(idx)
 	add_message("SYSTEM", "QUEST_DISPLAY_MODE -> index " + str(idx))
+
+
+func _on_xr_flow_profile_option_selected(idx: int) -> void:
+	_play_sfx("pop")
+	xr_flow_profile_selected.emit(idx)
+	add_message("SYSTEM", "XR_FLOW_PROFILE -> index " + str(idx))
 
 
 func _on_user_vision_option_selected(idx: int) -> void:
@@ -1443,10 +1466,16 @@ func _show_files_panel():
 	if not panel:
 		panel = VBoxContainer.new(); panel.name = "FilesPanel"; _content_stack.add_child(panel)
 		var l = Label.new(); l.text = "LOCAL_FS // PROJECT_ARCHIVES"; panel.add_child(l)
+		var status = Label.new(); status.name = "FileStatus"; status.text = "Tap a file to request/open."; panel.add_child(status)
 		var list = ItemList.new(); list.name = "FileList"; list.size_flags_vertical = SIZE_EXPAND_FILL; panel.add_child(list)
-		list.item_activated.connect(func(idx): add_message("SYSTEM", "ACCESS_DENIED: " + list.get_item_text(idx)))
+		list.item_activated.connect(func(idx):
+			_on_file_activated(list.get_item_text(idx))
+		)
 	
 	panel.visible = true
+	var st: Label = panel.get_node_or_null("FileStatus") as Label
+	if st:
+		st.text = "Loading file list..."
 	files_requested.emit()
 
 func _on_files_received(files: Array):
@@ -1455,6 +1484,43 @@ func _on_files_received(files: Array):
 		var list = panel.get_node("FileList") as ItemList
 		list.clear()
 		for f in files: list.add_item(f)
+		var st: Label = panel.get_node_or_null("FileStatus") as Label
+		if st:
+			st.text = "Loaded " + str(files.size()) + " entries."
+
+
+func _on_file_activated(path: String) -> void:
+	var clean := path.strip_edges()
+	var panel = _content_stack.get_node_or_null("FilesPanel")
+	var st: Label = null
+	if panel:
+		st = panel.get_node_or_null("FileStatus") as Label
+	if clean.is_empty():
+		if st:
+			st.text = "No file selected."
+		return
+	file_activation_requested.emit(clean)
+	if st:
+		st.text = "Requested: " + clean
+	# Lightweight local behavior: open obvious local paths/URLs directly when safe.
+	var is_http := clean.begins_with("http://") or clean.begins_with("https://")
+	if is_http:
+		OS.shell_open(clean)
+		add_message("SYSTEM", "OPEN_URL: " + clean)
+		if st:
+			st.text = "Opened URL."
+		return
+	var abs_path := clean
+	if clean.begins_with("res://") or clean.begins_with("user://"):
+		abs_path = ProjectSettings.globalize_path(clean)
+	if clean.begins_with("res://") or clean.begins_with("user://") or clean.is_absolute_path():
+		if FileAccess.file_exists(abs_path):
+			OS.shell_open(abs_path)
+			add_message("SYSTEM", "OPEN_FILE: " + clean)
+			if st:
+				st.text = "Opened local file."
+			return
+	add_message("SYSTEM", "FILE_REQUESTED: " + clean)
 
 func _show_emotions_panel():
 	var panel = _content_stack.get_node_or_null("EmotionsPanel")
@@ -1484,9 +1550,21 @@ func _show_emotions_panel():
 				b.text = "CERTIFY_USER"
 				b.add_theme_color_override("font_color", Color.GOLD)
 				b.pressed.connect(func(): user_certification_requested.emit())
+			elif e == "AWE" or e == "CURIOUS" or e == "CONTEMPLATE":
+				b.add_theme_color_override("font_color", Color(0.82, 0.96, 1.0))
+				b.tooltip_text = "Wired to sensory channel."
+				b.pressed.connect(_on_emotion_stimulus_pressed.bind(e))
 			else:
 				b.pressed.connect(func(): add_message("SYSTEM", "STIMULATING_EMOTION: " + e))
 	panel.visible = true
+
+
+func _on_emotion_stimulus_pressed(emotion_name: String) -> void:
+	var em := emotion_name.strip_edges()
+	if em.is_empty():
+		return
+	emotion_stimulus_requested.emit(em)
+	add_message("SYSTEM", "EMOTION_STIMULUS_REQUESTED: " + em)
 
 func update_shared_views(user_tex: Texture2D, jen_tex: Texture2D):
 	var panel = _content_stack.get_node_or_null("ConferencePanel")

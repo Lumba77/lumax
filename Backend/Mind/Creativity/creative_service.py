@@ -1033,6 +1033,73 @@ def _ort_sd14_provider() -> str:
 
     return _env_str("LUMAX_CREATIVITY_SD14_ONNX_PROVIDER", "CUDAExecutionProvider")
 
+
+def _sd15_model_index_class_name(path: str) -> str:
+
+    idx = os.path.join(path, "model_index.json")
+
+    if not os.path.isfile(idx):
+
+        return ""
+
+    try:
+
+        with open(idx, "r", encoding="utf-8") as f:
+
+            data = json.load(f)
+
+        return (data.get("_class_name") or "").strip()
+
+    except Exception:
+
+        return ""
+
+
+def _sd15_local_dir_ok_for_txt2img(path: str) -> bool:
+
+    """StableDiffusionPipeline export only — a ControlNet pipeline folder under stable-diffusion-v1-5 breaks txt2img load."""
+
+    cn = _sd15_model_index_class_name(path)
+
+    if cn == "StableDiffusionPipeline":
+
+        return True
+
+    if not cn:
+
+        logger.warning("Skipping local SD1.5 path %s: missing or invalid model_index.json", path)
+
+        return False
+
+    if "ControlNet" in cn:
+
+        logger.warning(
+
+            "Skipping local SD1.5 path %s: model_index is %s (not plain txt2img). "
+
+            "Point LUMAX_CREATIVITY_SD15_MODEL_ID at runwayml/stable-diffusion-v1-5 or fix the folder.",
+
+            path,
+
+            cn,
+
+        )
+
+        return False
+
+    logger.warning(
+
+        "Local SD1.5 path %s has unexpected _class_name %r; attempting StableDiffusionPipeline load.",
+
+        path,
+
+        cn,
+
+    )
+
+    return True
+
+
 def _resolve_sd15_source() -> Tuple[str, str]:
 
     """
@@ -1051,7 +1118,7 @@ def _resolve_sd15_source() -> Tuple[str, str]:
 
         return ("repo", SD15_MODEL_ID)
 
-    if os.path.isdir(V15_PATH):
+    if os.path.isdir(V15_PATH) and _sd15_local_dir_ok_for_txt2img(V15_PATH):
 
         return ("repo", V15_PATH)
 
@@ -1125,7 +1192,18 @@ def _load_sd15_txt2img():
 
         ).to("cuda")
 
-    return StableDiffusionPipeline.from_pretrained(src, torch_dtype=torch.float16).to("cuda")
+    # safety_checker / feature_extractor can be None on some snapshots — diffusers otherwise passes None to os.path.join.
+    return StableDiffusionPipeline.from_pretrained(
+
+        src,
+
+        torch_dtype=torch.float16,
+
+        safety_checker=None,
+
+        requires_safety_checker=False,
+
+    ).to("cuda")
 
 def _load_sd15_img2img():
 
@@ -1145,7 +1223,17 @@ def _load_sd15_img2img():
 
         ).to("cuda")
 
-    return StableDiffusionImg2ImgPipeline.from_pretrained(src, torch_dtype=torch.float16).to("cuda")
+    return StableDiffusionImg2ImgPipeline.from_pretrained(
+
+        src,
+
+        torch_dtype=torch.float16,
+
+        safety_checker=None,
+
+        requires_safety_checker=False,
+
+    ).to("cuda")
 
 def _load_ort_sd14():
 

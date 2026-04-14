@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 
+/* Edited by Lumba */
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -590,6 +591,231 @@
             font-size: 0.75rem;
             opacity: 0.65;
         }
+
+        /* Feature map (FEATURE_INVENTORY.md) */
+        .fmap-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 14px;
+        }
+
+        .fmap-search-wrap {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .fmap-search-wrap input {
+            width: 100%;
+            padding: 10px 12px;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border);
+            color: #e0e0e0;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.82rem;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .fmap-chip-row,
+        .fmap-preset-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .fmap-chip {
+            cursor: pointer;
+            user-select: none;
+            font-size: 0.72rem;
+            font-family: 'Share Tech Mono', monospace;
+            color: rgba(224, 224, 224, 0.88);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.25);
+        }
+
+        .fmap-chip input {
+            margin: 0;
+        }
+
+        .fmap-view-toggle {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.72rem;
+            font-family: 'Share Tech Mono', monospace;
+            color: rgba(224, 224, 224, 0.75);
+        }
+
+        .fmap-view-toggle label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        .fmap-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+            gap: 12px;
+        }
+
+        .fmap-card {
+            background: rgba(5, 10, 20, 0.55);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .fmap-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .fmap-card h4 {
+            margin: 0;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.72rem;
+            letter-spacing: 0.06em;
+            color: var(--neon-blue);
+            line-height: 1.35;
+        }
+
+        .fmap-tier {
+            flex-shrink: 0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.62rem;
+            font-family: 'Share Tech Mono', monospace;
+            border: 1px solid rgba(0, 243, 255, 0.25);
+        }
+
+        .fmap-tier-A { color: var(--neon-green); background: rgba(57, 255, 20, 0.08); }
+        .fmap-tier-B { color: #7ecbff; background: rgba(0, 150, 255, 0.1); }
+        .fmap-tier-C { color: #ffb347; background: rgba(255, 140, 0, 0.12); }
+        .fmap-tier-D { color: #c7c7c7; background: rgba(200, 200, 200, 0.08); }
+        .fmap-tier-none { color: rgba(224,224,224,0.5); font-size: 0.62rem; }
+
+        .fmap-meta {
+            font-size: 0.65rem;
+            font-family: 'Share Tech Mono', monospace;
+            color: rgba(255, 0, 127, 0.85);
+            letter-spacing: 0.04em;
+        }
+
+        .fmap-notes {
+            font-size: 0.78rem;
+            line-height: 1.45;
+            color: rgba(224, 224, 224, 0.9);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .fmap-outline {
+            font-size: 0.8rem;
+            line-height: 1.55;
+            max-height: calc(100vh - 280px);
+            overflow: auto;
+            padding-right: 6px;
+        }
+
+        .fmap-outline h3.fmap-h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.95rem;
+            color: var(--neon-pink);
+            margin: 0 0 10px 0;
+        }
+
+        .fmap-outline h4.fmap-h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.78rem;
+            color: var(--neon-blue);
+            margin: 18px 0 8px 0;
+        }
+
+        .fmap-outline h5.fmap-h3 {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.72rem;
+            color: rgba(0, 243, 255, 0.75);
+            margin: 12px 0 6px 0;
+            font-weight: 400;
+        }
+
+        .fmap-outline p {
+            margin: 0 0 10px 0;
+            color: rgba(224, 224, 224, 0.88);
+        }
+
+        .fmap-outline table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.74rem;
+            margin: 0 0 14px 0;
+        }
+
+        .fmap-outline th,
+        .fmap-outline td {
+            border: 1px solid var(--border);
+            padding: 6px 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .fmap-outline th {
+            background: rgba(0, 243, 255, 0.06);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.68rem;
+        }
+
+        .fmap-stat {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.72rem;
+            color: rgba(0, 243, 255, 0.65);
+            margin-bottom: 0;
+        }
+
+        .fmap-results-strip {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 0 0 14px 0;
+            padding: 10px 12px;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid rgba(0, 243, 255, 0.15);
+            background: rgba(2, 5, 10, 0.92);
+            backdrop-filter: blur(8px);
+            position: sticky;
+            top: 0;
+            z-index: 6;
+        }
+
+        .fmap-results-strip .fmap-stat {
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .fmap-apply-btn {
+            flex-shrink: 0;
+            width: auto !important;
+            padding: 8px 16px !important;
+            font-size: 0.72rem !important;
+            font-family: 'Orbitron', sans-serif !important;
+            letter-spacing: 0.06em;
+        }
     </style>
 </head>
 
@@ -671,6 +897,7 @@
 
             <div class="nav-group">
                 <div class="nav-label" id="nav-label-utilities">Utilities</div>
+                <div id="nav-featuremap" class="nav-item locked" data-tab="FEATUREMAP" onclick="switchTab('FEATUREMAP')">FEATURE MAP</div>
                 <div id="nav-branding" class="nav-item locked" data-tab="BRANDING" onclick="switchTab('BRANDING')">LABEL EDITOR</div>
                 <div id="nav-utils" class="nav-item locked" data-tab="UTILS" onclick="switchTab('UTILS')">ANNOUNCE BOARD</div>
                 <div id="nav-chatterbox" class="nav-item locked" data-tab="CHATTERBOX" onclick="switchTab('CHATTERBOX')">CHATTERBOX (TTS)</div>
@@ -1098,6 +1325,7 @@
                             <div><label for="bf-nt-CHECKUP">System check</label><input type="text" id="bf-nt-CHECKUP"></div>
                             <div><label for="bf-nt-UTILS">Announce board</label><input type="text" id="bf-nt-UTILS"></div>
                             <div><label for="bf-nt-BRANDING">Label editor</label><input type="text" id="bf-nt-BRANDING"></div>
+                            <div><label for="bf-nt-FEATUREMAP">Feature map</label><input type="text" id="bf-nt-FEATUREMAP"></div>
                         </div>
                     </fieldset>
                     <fieldset>
@@ -1196,6 +1424,62 @@
                 </div>
             </div>
 
+            <!-- Tab: FEATURE MAP — FEATURE_INVENTORY.md + filters -->
+            <div id="view-FEATUREMAP" class="tab-view">
+                <h3 style="font-family:Orbitron; margin-top:0; letter-spacing:1px;">Feature map</h3>
+                <p style="font-size:0.75rem; opacity:0.55; margin:0 0 16px 0; max-width: 62ch;">
+                    Live view of <span style="font-family:'Share Tech Mono',monospace; color:var(--neon-blue);">FEATURE_INVENTORY.md</span>
+                    — maturity tiers, stubs, and cross-surface notes. Filter for brainstorm sessions (stubs-only, roadmap, Godot slice, …).
+                </p>
+                <div id="feature-map-root" class="glass-card" style="padding:16px 18px;">
+                    <p id="feature-map-status" class="fmap-stat">Sign in and open this tab to load the inventory…</p>
+                    <div class="fmap-toolbar">
+                        <div class="fmap-search-wrap">
+                            <label for="fmap-search" style="font-size:0.62rem; opacity:0.55; letter-spacing:0.1em;">SEARCH (LABEL + NOTES)</label>
+                            <input type="search" id="fmap-search" placeholder="e.g. chatterbox, stub, docker…" autocomplete="off">
+                        </div>
+                        <div class="fmap-view-toggle">
+                            <span style="opacity:0.65;">View:</span>
+                            <label><input type="radio" name="fmap-view-mode" value="rows" checked> Filtered rows</label>
+                            <label><input type="radio" name="fmap-view-mode" value="outline"> Full outline</label>
+                        </div>
+                    </div>
+                    <div class="fmap-toolbar" style="align-items:center;">
+                        <span style="font-size:0.62rem; opacity:0.55; letter-spacing:0.1em;">TIER</span>
+                        <div class="fmap-chip-row">
+                            <label class="fmap-chip"><input type="checkbox" id="fmap-tier-A" checked data-fmap-tier>A</label>
+                            <label class="fmap-chip"><input type="checkbox" id="fmap-tier-B" checked data-fmap-tier>B</label>
+                            <label class="fmap-chip"><input type="checkbox" id="fmap-tier-C" checked data-fmap-tier>C</label>
+                            <label class="fmap-chip"><input type="checkbox" id="fmap-tier-D" checked data-fmap-tier>D</label>
+                            <label class="fmap-chip"><input type="checkbox" id="fmap-tier-none" checked>Untiered</label>
+                        </div>
+                    </div>
+                    <div class="fmap-toolbar" style="flex-direction:column; align-items:stretch;">
+                        <span style="font-size:0.62rem; opacity:0.55; letter-spacing:0.1em;">SECTION / SURFACE</span>
+                        <div id="fmap-cat-host" class="fmap-chip-row"></div>
+                    </div>
+                    <div class="fmap-preset-row" style="margin-bottom:0;">
+                        <span style="font-size:0.62rem; opacity:0.55; letter-spacing:0.1em;">PRESETS</span>
+                        <button type="button" class="btn-action" style="width:auto; padding:6px 12px; font-size:0.7rem;" onclick="featureMapPreset('all')">All</button>
+                        <button type="button" class="btn-action" style="width:auto; padding:6px 12px; font-size:0.7rem; opacity:0.9;" onclick="featureMapPreset('stubs')">Stubs &amp; placeholders (C)</button>
+                        <button type="button" class="btn-action" style="width:auto; padding:6px 12px; font-size:0.7rem; opacity:0.9;" onclick="featureMapPreset('roadmap')">Gaps &amp; next steps</button>
+                        <button type="button" class="btn-action" style="width:auto; padding:6px 12px; font-size:0.7rem; opacity:0.9;" onclick="featureMapPreset('godot')">Godot / VR</button>
+                        <button type="button" class="btn-action" style="width:auto; padding:6px 12px; font-size:0.7rem; opacity:0.9;" onclick="featureMapPreset('web')">Web UI</button>
+                        <button type="button" class="btn-action" style="width:auto; padding:6px 12px; font-size:0.7rem; opacity:0.9;" onclick="featureMapPreset('strong')">Strong (A only)</button>
+                    </div>
+                    <div class="fmap-results-strip" id="fmap-results-strip" aria-live="polite">
+                        <div id="fmap-count" class="fmap-stat">Adjust filters above, then Apply or scroll results.</div>
+                        <button type="button" class="btn-action fmap-apply-btn" onclick="renderFeatureMap()">Apply filters</button>
+                    </div>
+                    <div id="fmap-rows-wrap">
+                        <div id="fmap-grid" class="fmap-grid"></div>
+                    </div>
+                    <div id="fmap-outline-wrap" style="display:none;">
+                        <div id="fmap-outline" class="fmap-outline glass-card" style="padding:14px 16px; background:rgba(0,0,0,0.2);"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Tab: UTILS — announcement board -->
             <div id="view-UTILS" class="tab-view">
                 <h3 id="utils-title" style="font-family:Orbitron; margin-top:0; letter-spacing:1px;">Announcements</h3>
@@ -1235,6 +1519,7 @@
     <script>
         let isAuthorized = false;
         let brandingState = {};
+        let featureMapData = null;
 
         function applyBranding(b) {
             if (!b || typeof b !== 'object') return;
@@ -1395,7 +1680,7 @@
                 utils_blurb: gv('bf-utils_blurb'),
                 ready_message: gv('bf-ready_message'),
             };
-            const tabKeys = ['SANCTUARY', 'NEURAL', 'THOUGHTS', 'IMAGINE', 'VISION', 'VESSEL', 'AGENCY', 'SOCIAL', 'COWORK', 'NUCLEUS', 'CHATTERBOX', 'CHECKUP', 'UTILS', 'BRANDING'];
+            const tabKeys = ['SANCTUARY', 'NEURAL', 'THOUGHTS', 'IMAGINE', 'VISION', 'VESSEL', 'AGENCY', 'SOCIAL', 'COWORK', 'NUCLEUS', 'CHATTERBOX', 'CHECKUP', 'UTILS', 'BRANDING', 'FEATUREMAP'];
             tabKeys.forEach((t) => {
                 patch.nav_tabs[t] = gv('bf-nt-' + t);
             });
@@ -1868,6 +2153,342 @@
             }
         }
 
+        function escapeHtmlFeatureMap(s) {
+            if (s == null || s === undefined) {
+                return '';
+            }
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
+        function initFeatureMapFilters() {
+            const host = document.getElementById('fmap-cat-host');
+            if (!host || !featureMapData || !featureMapData.categories) {
+                return;
+            }
+            if (host.dataset.inited === '1') {
+                return;
+            }
+            host.innerHTML = '';
+            featureMapData.categories.forEach(function (c) {
+                const id = 'fmap-cat-' + c.id;
+                const lab = document.createElement('label');
+                lab.className = 'fmap-chip';
+                const inp = document.createElement('input');
+                inp.type = 'checkbox';
+                inp.id = id;
+                inp.checked = true;
+                inp.setAttribute('data-cat', c.id);
+                lab.appendChild(inp);
+                lab.appendChild(document.createTextNode(' ' + (c.label || c.id)));
+                host.appendChild(lab);
+            });
+            host.dataset.inited = '1';
+        }
+
+        function featureMapCategoryEnabled(row) {
+            const cat = row.category || 'other';
+            const cb = document.getElementById('fmap-cat-' + cat);
+            if (!cb) {
+                return true;
+            }
+            return cb.checked;
+        }
+
+        function featureMapTierEnabled(row) {
+            const noneEl = document.getElementById('fmap-tier-none');
+            const tier = row.tier;
+            if (!tier) {
+                return noneEl ? noneEl.checked : true;
+            }
+            const el = document.getElementById('fmap-tier-' + tier);
+            return el ? el.checked : true;
+        }
+
+        function featureMapSearchOk(row) {
+            const inp = document.getElementById('fmap-search');
+            const q = inp && inp.value ? inp.value.trim().toLowerCase() : '';
+            if (!q) {
+                return true;
+            }
+            const blob = row.search_blob || '';
+            const label = (row.label || '').toLowerCase();
+            return blob.indexOf(q) !== -1 || label.indexOf(q) !== -1;
+        }
+
+        function renderFeatureMapOutline() {
+            const el = document.getElementById('fmap-outline');
+            if (!el || !featureMapData || !featureMapData.segments) {
+                return;
+            }
+            const parts = [];
+            featureMapData.segments.forEach(function (seg) {
+                if (seg.kind === 'h1') {
+                    parts.push('<h3 class="fmap-h1">' + escapeHtmlFeatureMap(seg.title) + '</h3>');
+                } else if (seg.kind === 'h2') {
+                    parts.push('<h4 class="fmap-h2">' + escapeHtmlFeatureMap(seg.title) + '</h4>');
+                } else if (seg.kind === 'h3') {
+                    parts.push('<h5 class="fmap-h3">' + escapeHtmlFeatureMap(seg.title) + '</h5>');
+                } else if (seg.kind === 'paragraph') {
+                    parts.push('<p>' + escapeHtmlFeatureMap(seg.text || '').replace(/\n/g, '<br>') + '</p>');
+                } else if (seg.kind === 'rule') {
+                    parts.push('<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;opacity:0.4;">');
+                } else if (seg.kind === 'table' && seg.headers) {
+                    parts.push('<table><thead><tr>');
+                    seg.headers.forEach(function (h) {
+                        parts.push('<th>' + escapeHtmlFeatureMap(h) + '</th>');
+                    });
+                    parts.push('</tr></thead><tbody>');
+                    (seg.rows || []).forEach(function (r) {
+                        const row = r.slice();
+                        while (row.length < seg.headers.length) {
+                            row.push('');
+                        }
+                        parts.push('<tr>');
+                        row.forEach(function (c) {
+                            parts.push('<td>' + escapeHtmlFeatureMap(c) + '</td>');
+                        });
+                        parts.push('</tr>');
+                    });
+                    parts.push('</tbody></table>');
+                }
+            });
+            el.innerHTML = parts.join('');
+        }
+
+        function renderFeatureMap() {
+            if (!featureMapData) {
+                return;
+            }
+            const modeEl = document.querySelector('input[name="fmap-view-mode"]:checked');
+            const view = modeEl ? modeEl.value : 'rows';
+            const rowsWrap = document.getElementById('fmap-rows-wrap');
+            const outWrap = document.getElementById('fmap-outline-wrap');
+            if (view === 'outline') {
+                if (rowsWrap) {
+                    rowsWrap.style.display = 'none';
+                }
+                if (outWrap) {
+                    outWrap.style.display = 'block';
+                }
+                renderFeatureMapOutline();
+                const cntO = document.getElementById('fmap-count');
+                if (cntO && featureMapData.segments) {
+                    cntO.textContent = 'Full outline · ' + featureMapData.segments.length
+                        + ' blocks (filters below still apply to the Filtered rows view).';
+                }
+                return;
+            }
+            if (rowsWrap) {
+                rowsWrap.style.display = 'block';
+            }
+            if (outWrap) {
+                outWrap.style.display = 'none';
+            }
+            const grid = document.getElementById('fmap-grid');
+            const cnt = document.getElementById('fmap-count');
+            if (!grid || !featureMapData.flat_rows) {
+                return;
+            }
+            const filtered = featureMapData.flat_rows.filter(function (r) {
+                return featureMapTierEnabled(r) && featureMapCategoryEnabled(r) && featureMapSearchOk(r);
+            });
+            const total = featureMapData.flat_rows.length;
+            const maxShow = 500;
+            const slice = filtered.slice(0, maxShow);
+            if (cnt) {
+                cnt.textContent = 'Showing ' + slice.length + ' of ' + filtered.length + ' matching rows (indexed ' + total + ').';
+            }
+            grid.innerHTML = '';
+            slice.forEach(function (r) {
+                const card = document.createElement('div');
+                card.className = 'fmap-card';
+                const head = document.createElement('div');
+                head.className = 'fmap-card-head';
+                const h4 = document.createElement('h4');
+                h4.textContent = r.label || '—';
+                head.appendChild(h4);
+                const tier = r.tier;
+                if (tier) {
+                    const tb = document.createElement('span');
+                    tb.className = 'fmap-tier fmap-tier-' + tier;
+                    tb.textContent = tier;
+                    head.appendChild(tb);
+                } else {
+                    const tb = document.createElement('span');
+                    tb.className = 'fmap-tier-none';
+                    tb.textContent = '—';
+                    head.appendChild(tb);
+                }
+                card.appendChild(head);
+                const meta = document.createElement('div');
+                meta.className = 'fmap-meta';
+                const h2 = r.h2_title || '';
+                const h3 = r.h3_title ? ' › ' + r.h3_title : '';
+                meta.textContent = (r.category || '') + h3 + ' · ' + h2;
+                card.appendChild(meta);
+                const notes = document.createElement('div');
+                notes.className = 'fmap-notes';
+                notes.textContent = r.notes || '';
+                card.appendChild(notes);
+                grid.appendChild(card);
+            });
+        }
+
+        function featureMapPreset(name) {
+            if (!featureMapData || !featureMapData.categories) {
+                return;
+            }
+            const cats = featureMapData.categories;
+            const setTier = function (a, b, c, d, none) {
+                const o = { A: a, B: b, C: c, D: d };
+                Object.keys(o).forEach(function (k) {
+                    const el = document.getElementById('fmap-tier-' + k);
+                    if (el) {
+                        el.checked = o[k];
+                    }
+                });
+                const n = document.getElementById('fmap-tier-none');
+                if (n) {
+                    n.checked = none;
+                }
+            };
+            const setCats = function (fn) {
+                cats.forEach(function (c) {
+                    const el = document.getElementById('fmap-cat-' + c.id);
+                    if (el) {
+                        el.checked = fn(c.id);
+                    }
+                });
+            };
+            const search = document.getElementById('fmap-search');
+            if (name === 'all') {
+                if (search) {
+                    search.value = '';
+                }
+                setTier(true, true, true, true, true);
+                setCats(function () { return true; });
+            } else if (name === 'stubs') {
+                setTier(false, false, true, false, false);
+                setCats(function () { return true; });
+            } else if (name === 'roadmap') {
+                if (search) {
+                    search.value = '';
+                }
+                setTier(true, true, true, true, true);
+                setCats(function (id) { return id === 'roadmap'; });
+            } else if (name === 'godot') {
+                if (search) {
+                    search.value = '';
+                }
+                setTier(true, true, true, true, true);
+                setCats(function (id) { return id === 'godot'; });
+            } else if (name === 'web') {
+                if (search) {
+                    search.value = '';
+                }
+                setTier(true, true, true, true, true);
+                setCats(function (id) { return id === 'web'; });
+            } else if (name === 'strong') {
+                if (search) {
+                    search.value = '';
+                }
+                setTier(true, false, false, false, false);
+                setCats(function () { return true; });
+            }
+            renderFeatureMap();
+        }
+
+        async function loadFeatureInventory() {
+            const status = document.getElementById('feature-map-status');
+            try {
+                const urls = ['/api/fmap', '/api/feature_inventory'];
+                let resp = null;
+                let data = {};
+                for (let u = 0; u < urls.length; u++) {
+                    resp = await fetch(urls[u], { credentials: 'same-origin' });
+                    if (resp.status === 404) {
+                        continue;
+                    }
+                    try {
+                        data = await resp.json();
+                    } catch (je) {
+                        if (status) {
+                            status.textContent = 'Feature map: invalid JSON (HTTP ' + resp.status + ').';
+                            status.style.color = '#ff6b6b';
+                        }
+                        return;
+                    }
+                    break;
+                }
+                if (!resp || resp.status === 404) {
+                    if (status) {
+                        status.textContent = 'Feature map API not found (HTTP 404 on /api/fmap and /api/feature_inventory). '
+                            + 'The running lumax_ops process is missing this code path — restart: docker restart lumax_ops. '
+                            + 'If it persists: GET http://127.0.0.1:8080/health should show feature_map_ok:true; '
+                            + 'rebuild lumax_unified or verify .:/app volume matches your repo.';
+                        status.style.color = '#ff6b6b';
+                    }
+                    return;
+                }
+                if (resp.status === 401) {
+                    if (status) {
+                        status.textContent = 'Unexpected 401 on feature map (should be public). Check proxy/auth middleware.';
+                        status.style.color = '#ff6b6b';
+                    }
+                    return;
+                }
+                if (!data.ok) {
+                    if (status) {
+                        status.textContent = 'Could not load: ' + (data.detail || data.error || 'unknown')
+                            + (data.path ? ' — ' + data.path : '');
+                        status.style.color = '#ff6b6b';
+                    }
+                    return;
+                }
+                featureMapData = data;
+                if (status) {
+                    status.textContent = 'Loaded · ' + (data.flat_rows || []).length + ' rows · '
+                        + (data.source_file || '');
+                    status.style.color = 'rgba(0,243,255,0.65)';
+                }
+                initFeatureMapFilters();
+                renderFeatureMap();
+            } catch (e) {
+                if (status) {
+                    status.textContent = 'Network error loading feature map.';
+                    status.style.color = '#ff6b6b';
+                }
+            }
+        }
+
+        function setupFeatureMapUi() {
+            const root = document.getElementById('feature-map-root');
+            if (root) {
+                root.addEventListener('change', function () {
+                    if (featureMapData) {
+                        renderFeatureMap();
+                    }
+                });
+            }
+            const s = document.getElementById('fmap-search');
+            let searchTimer = null;
+            if (s) {
+                s.addEventListener('input', function () {
+                    clearTimeout(searchTimer);
+                    searchTimer = setTimeout(function () {
+                        renderFeatureMap();
+                    }, 220);
+                });
+            }
+            document.querySelectorAll('input[name="fmap-view-mode"]').forEach(function (r) {
+                r.addEventListener('change', function () {
+                    renderFeatureMap();
+                });
+            });
+        }
+
         function switchTab(tabId) {
             if (!isAuthorized && tabId !== 'SANCTUARY') return;
 
@@ -1913,6 +2534,9 @@
             }
             if (tabId === 'VISION') {
                 loadVisionPanel();
+            }
+            if (tabId === 'FEATUREMAP') {
+                loadFeatureInventory();
             }
         }
 
@@ -2734,6 +3358,8 @@
                 if (e.key === 'Enter') submitWebUiGate();
             });
         }
+        setupFeatureMapUi();
+
         (async function initWebUi() {
             await loadBranding();
             bootstrapWebUi();

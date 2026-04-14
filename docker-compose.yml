@@ -7,13 +7,15 @@
 #   LUMAX_PIPER_MODEL_DIR, LUMAX_TURBO_MODEL_DIR — same rules (POSIX under WSL).
 #   Ollama model blobs: set OLLAMA_MODELS=/app/models/Ollama (lumax_ollama_backup) + LUMAX_MODELS_ROOT -> /app/models (same D: tree as soul).
 #   Named volume `ollama` = /root/.ollama (keys etc.; shared lumax_ollama_backup + lumax_ops).
-# Build order (first run): docker compose build lumax_soul && docker compose build lumax_turbochat
+# Build order (first run): docker compose build lumax_soul && docker compose --profile turbo build lumax_turbochat
+# lumax_turbochat (XTTS :8005) is profile "turbo" — NOT started by plain `docker compose up -d` (saves VRAM; default mouth is chatterbox + Piper).
+# Start XTTS when needed: `docker compose --profile turbo up -d lumax_turbochat` or set COMPOSE_PROFILES=turbo in .env
 # Optional Resemble Chatterbox Web UI (separate from XTTS turbochat): scripts/bootstrap_chatterbox_resemble.ps1 + docker-compose.chatterbox-resemble.yml
 # Windows: .\build_lumax_unified.ps1 — reuses a local BuildKit cache so the big llama-cpp wheel is not re-downloaded every time.
 # In-stack Ollama: docker compose build lumax_ollama_backup && docker compose up -d (default stack; models under LUMAX_MODELS_ROOT/Ollama).
 # If you run Ollama on the host on :11434, stop one or the other to avoid a port bind conflict (or set OLLAMA_HOST=http://host.docker.internal:11434 and stop in-stack Ollama).
 #   OLLAMA_DEBUG=-1 — Ollama slog WARN+ (quieter than default INFO).
-#   OLLAMA_HEALTHCHECK_INTERVAL — Docker healthcheck period (default 30s; TCP-only, no Gin spam). Use 300s only if you accept slow "healthy".
+#   OLLAMA_HEALTHCHECK_INTERVAL — Docker healthcheck period (default 30s). Probe uses curl GET /api/tags (image installs curl). Rebuild ollama image if healthcheck fails (stale layers).
 # Pull models into the container: scripts/pull_ollama_backup_models.ps1
 
 services:
@@ -44,8 +46,8 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      # TCP connect only — does not send HTTP, so Gin does not log each probe (rebuild image after Dockerfile adds netcat).
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 11434 || exit 1"]
+      # curl is installed in Backend/Mind/Cognition/Ollama/Dockerfile — more reliable than nc across base image variants.
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:11434/api/tags"]
       # Default 30s so service_healthy resolves in ~1–2 min; 300s delays first probe and blocks soul/ops for minutes.
       interval: ${OLLAMA_HEALTHCHECK_INTERVAL:-30s}
       timeout: 5s
@@ -210,8 +212,8 @@ services:
       - ${LUMAX_PIPER_MODEL_DIR:-/d/Lumax/models/Body/Mouth/Speech/tts-piper-amy/en/en_US/amy/medium}:/app/models/Mouth
     environment:
       - TURBO_URL=http://lumax_turbochat:8005
-      # Mouth TTS routing: turbo = lumax_turbochat XTTS; chatterbox = Resemble server (see Backend/preflight/tts_backend)
-      - LUMAX_TTS_BACKEND=${LUMAX_TTS_BACKEND:-turbo}
+      # Mouth TTS routing: turbo = lumax_turbochat XTTS; chatterbox = Resemble (emotional speech). Piper fallback is automatic if Chatterbox errors (body_interface.py).
+      - LUMAX_TTS_BACKEND=${LUMAX_TTS_BACKEND:-chatterbox}
       - LUMAX_TTS_BACKEND_FILE=/app/Backend/preflight/tts_backend
       - LUMAX_CHATTERBOX_HTTP_URL=${LUMAX_CHATTERBOX_HTTP_URL:-http://lumax_chatterbox_resemble:8004}
       - LUMAX_CHATTERBOX_DEFAULT_VOICE=${LUMAX_CHATTERBOX_DEFAULT_VOICE:-Emily.wav}
@@ -235,6 +237,13 @@ services:
     container_name: lumax_creativity
     ports:
       - "8003:8003"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     # Pip stack for Dream: matches Backend/Mind/Creativity/requirements.txt when the image predates these deps.
     # Weights stay on LUMAX_MODELS_ROOT / InvokeAI models mounts — do not mount Invoke's venv unless PYTHONPATH matches container Python.
     command:
@@ -260,6 +269,7 @@ services:
       - LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR=${LUMAX_CREATIVITY_SDXL_TURBO_TRT_DIR:-}
       # Optional: full Optimum ORT export with model_index.json (not unet_fp16.onnx alone)
       - LUMAX_CREATIVITY_SD14_ONNX_DIR=${LUMAX_CREATIVITY_SD14_ONNX_DIR:-}
+      - LUMAX_CREATIVITY_SD15_MODEL_ID=${LUMAX_CREATIVITY_SD15_MODEL_ID:-}
       - LUMAX_CREATIVITY_DEFAULT_INFERENCE_STEPS=${LUMAX_CREATIVITY_DEFAULT_INFERENCE_STEPS:-5}
       - LUMAX_CREATIVITY_DEFAULT_MODEL_TYPE=${LUMAX_CREATIVITY_DEFAULT_MODEL_TYPE:-turbo}
       # Inside the container, models are always at this mount (matches volume above).
@@ -317,6 +327,8 @@ services:
       - LUMAX_WEBUI_SESSION_COOKIE=${LUMAX_WEBUI_SESSION_COOKIE:-lumax_webui_session}
       # Comma-separated origins for mobile/Capacitor or Vite dev (e.g. http://192.168.1.10:5173) — empty = no CORS.
       - LUMAX_WEBUI_CORS_ORIGINS=${LUMAX_WEBUI_CORS_ORIGINS:-}
+      # Web UI: auto-reload uvicorn when bind-mounted Python/HTML under Webui changes (default on). Set 0 in production if undesired.
+      - LUMAX_WEBUI_RELOAD=${LUMAX_WEBUI_RELOAD:-1}
       - SENTRY_MODE=ACTIVE
       # Backend preflight in sentry loop: light|standard|deep
       - LUMAX_PREFLIGHT_LEVEL=${LUMAX_PREFLIGHT_LEVEL:-light}
@@ -398,7 +410,10 @@ services:
   # --- SPEECH ACCELERATION ---
   # Chatterbox-style TTS API (:8005): primary engine XTTS v2 (ONNX streaming); intended to host additional suite providers over time.
   # Originally created as lumax_chatterbox_turbo; renamed lumax_turbochat for a shorter name (same service).
+  # Profile "turbo": leave off default `up -d` so GPU is free for creativity / Chatterbox; Web UI GPU switch + switch_gpu_tts_stack.ps1 pass --profile turbo.
   lumax_turbochat:
+    profiles:
+      - turbo
     build:
       context: .
       dockerfile: Dockerfile.turbo

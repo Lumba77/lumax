@@ -93,8 +93,11 @@ def _service_health_urls() -> dict[str, str]:
         "SOUL": os.getenv("LUMAX_SENTRY_SOUL_HEALTH_URL", f"{soul_base}/health"),
         "EARS": os.getenv("LUMAX_SENTRY_EARS_HEALTH_URL", f"{ears_base}/health"),
         "MOUTH": os.getenv("LUMAX_SENTRY_MOUTH_HEALTH_URL", f"{mouth_base}/health"),
-        "TURBO": os.getenv("LUMAX_SENTRY_TURBO_HEALTH_URL", f"{turbo_base}/health"),
     }
+    # Turbo health is only relevant when mouth backend is turbo.
+    tts_backend = _resolved_tts_backend()
+    if tts_backend == "turbo":
+        urls["TURBO"] = os.getenv("LUMAX_SENTRY_TURBO_HEALTH_URL", f"{turbo_base}/health")
     # Creativity (dream) on :8003 — lumax_embers does not publish host ports; conflict on 8003 is never from embers.
     if _bool_env("LUMAX_SENTRY_CHECK_CREATIVITY", True):
         cu = os.getenv("LUMAX_SENTRY_CREATIVITY_HEALTH_URL", "").strip()
@@ -108,6 +111,25 @@ def _service_health_urls() -> dict[str, str]:
         if wu:
             urls["WEBUI"] = wu
     return urls
+
+
+def _resolved_tts_backend() -> str:
+    """
+    Active mouth stack: turbo or chatterbox.
+    Source order: marker file first, then env, then turbo.
+    """
+    marker = os.getenv("LUMAX_TTS_BACKEND_FILE", "/app/Backend/preflight/tts_backend").strip()
+    if marker:
+        try:
+            if os.path.isfile(marker):
+                with open(marker, "r", encoding="utf-8-sig") as f:
+                    first = (f.readline() or "").strip().lower()
+                    if first in ("turbo", "chatterbox"):
+                        return first
+        except Exception:
+            pass
+    env_v = os.getenv("LUMAX_TTS_BACKEND", "turbo").strip().lower()
+    return env_v if env_v in ("turbo", "chatterbox") else "turbo"
 
 
 # Resolved once at import; callers may re-read via _service_health_urls() in tests.

@@ -143,6 +143,24 @@ enum QuestDisplayMode { AUTO, PURE_PASSTHROUGH, XR_MIXED, VR_IMMERSIVE }
 ## Extra seconds before Mind/UI wiring. On **XR** (Quest, PC VR, Virtual Desktop, etc.) effective delay is **max(this, 1.25)** — standalone Android used to be the only path with a floor; Windows+OpenXR also needs it (otherwise apply fires at 0.00s and crashes).
 @export var boot_presence_cortex_delay_sec: float = 0.0
 
+## Runtime graphics flow profile for XR (keeps passthrough mode choices, trims render cost).
+@export_group("XR Flow / Performance")
+enum XRFlowProfile { OFF, BALANCED, PERFORMANCE }
+@export var xr_flow_profile: XRFlowProfile = XRFlowProfile.BALANCED
+## Prefer passthrough-capable modes on desktop PCVR (Meta Link/VD) when user had selected VR immersive.
+@export var xr_prefer_passthrough_on_pcvr: bool = true
+## Upscaler mode for XR SubViewport (0=bilinear, 1=FSR). FSR usually looks better at sub-1.0 scale.
+@export var xr_use_fsr_upscaler: bool = true
+## Balanced profile scale: good default on mixed hardware.
+@export_range(0.55, 1.0, 0.01) var xr_balanced_render_scale: float = 0.82
+## Performance profile scale: use when GPU frametime is unstable.
+@export_range(0.55, 1.0, 0.01) var xr_performance_render_scale: float = 0.72
+## Runtime refresh target (if runtime exposes FB display refresh extension).
+@export_range(60.0, 120.0, 1.0) var xr_balanced_target_refresh_hz: float = 72.0
+@export_range(60.0, 120.0, 1.0) var xr_performance_target_refresh_hz: float = 72.0
+## Disable costly world effects in XR for steadier frametimes.
+@export var xr_trim_heavy_world_effects: bool = true
+
 const _ANIM_USER_PREFS_PATH := "user://lumax_jen_animation_prefs.json"
 var _anim_favorites: PackedStringArray = PackedStringArray()
 var _anim_workflows: Array = []
@@ -200,6 +218,12 @@ var _night_sleep_poll_accum: float = 0.0
 var _night_sleep_last_calendar_key: String = ""
 var _night_sleep_sequence_running: bool = false
 var _jen_night_rest_active: bool = false
+## Guard against duplicate presence wiring schedule during boot/rebind paths.
+var _presence_cortex_scheduled: bool = false
+## Async avatar manifest guard: prevent duplicate threaded loads from stacking.
+var _avatar_load_active: bool = false
+var _avatar_load_path: String = ""
+var _avatar_load_request_id: int = 0
 
 var _touch_receipt_timer: float = 0.0
 var _last_touch_gentle: bool = true
@@ -383,6 +407,14 @@ func cue_initial_idle_loop() -> void:
 		_pick_random_chosen_idle()
 	elif _jen_avatar and _jen_avatar.has_method("play_animation"):
 		_jen_avatar.call("play_animation", &"idle")
+
+
+func _force_startup_idle_fallback() -> void:
+	if _jen_avatar == null or not is_instance_valid(_jen_avatar):
+		return
+	if not _jen_avatar.has_method("play_animation"):
+		return
+	_jen_avatar.call("play_animation", &"idle")
 
 ## Call when AvatarController rebinds _body_animation_player (e.g. ProceduralLungs → VRM player).
 func refresh_jen_anim_player() -> void:
@@ -651,7 +683,9 @@ func _ready():
 
 ## Quest/video passthrough: applies `quest_display_mode` to OpenXR blend, passthrough, session hint, and world background.
 func _lumax_configure_xr_passthrough_and_world(xr_interface: XRInterface) -> void:
+	_lumax_apply_xr_flow_profile_guardrails()
 	_lumax_apply_quest_display_mode(xr_interface)
+	_lumax_apply_xr_runtime_flow_tuning(xr_interface)
 
 
 func _lumax_try_set_immersive_session(ar: bool) -> void:
@@ -686,6 +720,95 @@ func _lumax_apply_worldenv_for_quest(transparent_world: bool) -> void:
 		env.background_color = Color(0.02, 0.02, 0.06, 1.0)
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	we.environment = env
+
+
+func _lumax_apply_xr_flow_profile_guardrails() -> void:
+	# PCVR preference: if user selected fully immersive VR, keep passthrough-capable mode unless explicitly turned off.
+	var is_android_runtime: bool = OS.get_name().to_lower() == "android"
+	if is_android_runtime:
+		return
+	if xr_prefer_passthrough_on_pcvr and quest_display_mode == QuestDisplayMode.VR_IMMERSIVE:
+		quest_display_mode = QuestDisplayMode.XR_MIXED
+		print("LUMAX: XR flow guardrail: desktop forced to XR_MIXED to keep passthrough availability.")
+
+
+func _lumax_has_property(obj: Object, prop_name: String) -> bool:
+	if obj == null:
+		return false
+	for p in obj.get_property_list():
+		if str(p.get("name", "")) == prop_name:
+			return true
+	return false
+
+
+func _lumax_set_property_if_exists(obj: Object, prop_name: String, value: Variant) -> bool:
+	if not _lumax_has_property(obj, prop_name):
+		return false
+	obj.set(prop_name, value)
+	return true
+
+
+func _lumax_try_set_openxr_refresh_rate(xr_interface: XRInterface, target_hz: float) -> void:
+	if xr_interface == null:
+		return
+	if not xr_interface.has_method("get_available_display_refresh_rates") or not xr_interface.has_method("set_display_refresh_rate"):
+		return
+	var rates_any: Variant = xr_interface.call("get_available_display_refresh_rates")
+	if typeof(rates_any) != TYPE_ARRAY:
+		return
+	var rates: Array = rates_any
+	if rates.is_empty():
+		return
+	var best: float = float(rates[0])
+	var best_diff: float = absf(best - target_hz)
+	for r in rates:
+		var rf: float = float(r)
+		var d: float = absf(rf - target_hz)
+		if d < best_diff:
+			best = rf
+			best_diff = d
+	xr_interface.call("set_display_refresh_rate", best)
+	print("LUMAX: XR refresh target %.1f Hz -> runtime %.1f Hz" % [target_hz, best])
+
+
+func _lumax_apply_worldenv_flow_trim() -> void:
+	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if we == null or we.environment == null:
+		return
+	var env: Environment = we.environment.duplicate(true)
+	var disabled_any := false
+	disabled_any = _lumax_set_property_if_exists(env, "ssao_enabled", false) or disabled_any
+	disabled_any = _lumax_set_property_if_exists(env, "ssil_enabled", false) or disabled_any
+	disabled_any = _lumax_set_property_if_exists(env, "sdfgi_enabled", false) or disabled_any
+	disabled_any = _lumax_set_property_if_exists(env, "volumetric_fog_enabled", false) or disabled_any
+	disabled_any = _lumax_set_property_if_exists(env, "glow_enabled", false) or disabled_any
+	disabled_any = _lumax_set_property_if_exists(env, "ssr_enabled", false) or disabled_any
+	disabled_any = _lumax_set_property_if_exists(env, "screen_space_reflection_enabled", false) or disabled_any
+	if disabled_any:
+		we.environment = env
+		print("LUMAX: XR flow tuning disabled heavy world effects (SSAO/SSIL/SDFGI/fog/glow/SSR where available).")
+
+
+func _lumax_apply_xr_runtime_flow_tuning(xr_interface: XRInterface) -> void:
+	if xr_flow_profile == XRFlowProfile.OFF:
+		return
+	var vp: Viewport = get_viewport()
+	var perf_mode: bool = xr_flow_profile == XRFlowProfile.PERFORMANCE
+	var target_hz: float = xr_performance_target_refresh_hz if perf_mode else xr_balanced_target_refresh_hz
+	# Guardrail: avoid runtime 3D scaling edits while XR multiview is active.
+	# On some OpenXR runtimes this can desync framebuffer layer/view counts and spam render errors.
+	if not vp.use_xr:
+		var target_scale: float = xr_performance_render_scale if perf_mode else xr_balanced_render_scale
+		var mode_int: int = 1 if xr_use_fsr_upscaler else 0 # 0=bilinear, 1=FSR
+		_lumax_set_property_if_exists(vp, "scaling_3d_mode", mode_int)
+		_lumax_set_property_if_exists(vp, "scaling_3d_scale", clampf(target_scale, 0.55, 1.0))
+	else:
+		print("LUMAX: XR flow guardrail: skipped runtime viewport scaling in XR multiview.")
+	_lumax_try_set_openxr_refresh_rate(xr_interface, target_hz)
+	if xr_trim_heavy_world_effects:
+		_lumax_apply_worldenv_flow_trim()
+	var profile_label: String = "PERFORMANCE" if perf_mode else "BALANCED"
+	print("LUMAX: XR flow profile %s applied (refresh_target=%.1fHz, xr_scaling=%s)." % [profile_label, target_hz, "guarded"])
 
 
 func _lumax_set_xr_blend_from_modes(xr_interface: XRInterface, prefer_alpha: bool, fallback_additive: bool) -> void:
@@ -1170,6 +1293,11 @@ func _setup_ambience():
 		# Idle after UI/XR — avoids skeleton animation + keyboard SubViewport fighting the same frames.
 		if use_chosen_idle_pool and _anim_player and _idle_anims.size() > 0:
 			_pick_random_chosen_idle()
+		elif _jen_avatar and _jen_avatar.has_method("play_animation"):
+			# Fallback startup path: without Chosen pool, force stable idle so we don't remain in an awkward bind/rest pose.
+			_jen_avatar.call("play_animation", &"idle")
+		# Retry idle after the first frames in case lungs/AnimationPlayer rebind late during startup.
+		get_tree().create_timer(0.8).timeout.connect(_force_startup_idle_fallback, CONNECT_ONE_SHOT)
 
 ## Head-tracked **user** POV for on-demand shares to the soul: mirrors `XRCamera3D` into `UserVisionViewport`
 ## (mixed reality / VR world), distinct from Jen’s `VisionViewport` on her avatar head bone.
@@ -1258,6 +1386,9 @@ func _setup_jen_vision(jen_node: Node3D):
 var _personality_presets: Dictionary = {}
 
 func _setup_presence_cortex() -> void:
+	if _presence_cortex_scheduled:
+		return
+	_presence_cortex_scheduled = true
 	# Do **not** `await process_frame` here: on Quest, the next frame often native-crashes before GDScript resumes
 	# (last log was always "presence cortex: enter"). Schedule wiring on a timer instead.
 	print("LUMAX: boot — presence cortex: enter (scheduling timer apply)")
@@ -1313,8 +1444,10 @@ func _setup_presence_cortex_apply() -> void:
 		# WEB_UI -> MULTIVISION
 		if not _web_ui.is_connected("vision_sensing_requested", _capture_and_send_vision): _web_ui.vision_sensing_requested.connect(_capture_and_send_vision.bind("USER_POV"))
 		if not _web_ui.is_connected("quest_display_mode_selected", _on_quest_display_mode_selected): _web_ui.quest_display_mode_selected.connect(_on_quest_display_mode_selected)
+		if not _web_ui.is_connected("xr_flow_profile_selected", _on_xr_flow_profile_selected): _web_ui.xr_flow_profile_selected.connect(_on_xr_flow_profile_selected)
 		if not _web_ui.is_connected("user_vision_source_selected", _on_user_vision_source_selected): _web_ui.user_vision_source_selected.connect(_on_user_vision_source_selected)
 		if not _web_ui.is_connected("jen_vision_source_selected", _on_jen_vision_source_selected): _web_ui.jen_vision_source_selected.connect(_on_jen_vision_source_selected)
+		if not _web_ui.is_connected("emotion_stimulus_requested", _on_emotion_stimulus_requested): _web_ui.emotion_stimulus_requested.connect(_on_emotion_stimulus_requested)
 
 	# --- BACKEND SIGNAL PLUMBING (RESTORED) ---
 	if _synapse:
@@ -1370,31 +1503,45 @@ func _on_avatar_selected(vrm_path: String):
 	var jen_root = get_node_or_null("Body")
 	var old_avatar = jen_root.get_node_or_null("Avatar") if jen_root else null
 	if not old_avatar: return
+	if _avatar_load_active and vrm_path == _avatar_load_path:
+		_show_user_notification("VESSEL", "Avatar already loading...", Color.GRAY)
+		return
 	
 	_show_user_notification("VESSEL", "Manifesting Avatar...", Color.VIOLET)
 	
 	# Request async load to avoid freezing the main thread and crashing OpenXR on Quest
+	_avatar_load_active = true
+	_avatar_load_path = vrm_path
+	_avatar_load_request_id += 1
+	var request_id: int = _avatar_load_request_id
 	var err = ResourceLoader.load_threaded_request(vrm_path, "PackedScene")
 	if err != OK:
+		if request_id == _avatar_load_request_id:
+			_avatar_load_active = false
 		_show_user_notification("VESSEL", "Load Failed: " + str(err), Color.RED)
 		return
 		
 	# Start a polling loop for the loaded resource
-	_poll_avatar_load(vrm_path, 0.0)
+	_poll_avatar_load(vrm_path, 0.0, request_id)
 
-func _poll_avatar_load(vrm_path: String, elapsed_time: float):
+func _poll_avatar_load(vrm_path: String, elapsed_time: float, request_id: int):
+	if request_id != _avatar_load_request_id:
+		return
 	if elapsed_time > 10.0:
+		_avatar_load_active = false
 		_show_user_notification("VESSEL", "Timeout Error", Color.RED)
 		return
 		
 	var status = ResourceLoader.load_threaded_get_status(vrm_path)
 	if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
 		# Keep polling every 0.1s
-		get_tree().create_timer(0.1).timeout.connect(func(): _poll_avatar_load(vrm_path, elapsed_time + 0.1))
+		get_tree().create_timer(0.1).timeout.connect(func(): _poll_avatar_load(vrm_path, elapsed_time + 0.1, request_id))
 	elif status == ResourceLoader.THREAD_LOAD_LOADED:
 		var scene = ResourceLoader.load_threaded_get(vrm_path)
+		_avatar_load_active = false
 		_apply_loaded_avatar(scene)
 	else:
+		_avatar_load_active = false
 		_show_user_notification("VESSEL", "Corrupt Resource", Color.RED)
 
 func _apply_loaded_avatar(scene: PackedScene):
@@ -1426,8 +1573,10 @@ func _apply_loaded_avatar(scene: PackedScene):
 		if _web_ui:
 			if not _web_ui.is_connected("vision_sensing_requested", _capture_and_send_vision): _web_ui.vision_sensing_requested.connect(_capture_and_send_vision.bind("USER_POV"))
 			if not _web_ui.is_connected("quest_display_mode_selected", _on_quest_display_mode_selected): _web_ui.quest_display_mode_selected.connect(_on_quest_display_mode_selected)
+			if not _web_ui.is_connected("xr_flow_profile_selected", _on_xr_flow_profile_selected): _web_ui.xr_flow_profile_selected.connect(_on_xr_flow_profile_selected)
 			if not _web_ui.is_connected("user_vision_source_selected", _on_user_vision_source_selected): _web_ui.user_vision_source_selected.connect(_on_user_vision_source_selected)
 			if not _web_ui.is_connected("jen_vision_source_selected", _on_jen_vision_source_selected): _web_ui.jen_vision_source_selected.connect(_on_jen_vision_source_selected)
+			if not _web_ui.is_connected("emotion_stimulus_requested", _on_emotion_stimulus_requested): _web_ui.emotion_stimulus_requested.connect(_on_emotion_stimulus_requested)
 			if not _web_ui.is_connected("files_requested", _synapse.list_files): _web_ui.files_requested.connect(_synapse.list_files)
 			if not _web_ui.is_connected("archive_requested", _synapse.get_memory_archive): _web_ui.archive_requested.connect(_synapse.get_memory_archive)
 			if not _web_ui.is_connected("dream_requested", _on_dream_requested): _web_ui.dream_requested.connect(_on_dream_requested)
@@ -1479,10 +1628,25 @@ func _on_quest_display_mode_selected(mode_idx: int) -> void:
 		return
 	var iface: XRInterface = XRServer.find_interface("OpenXR")
 	if iface:
+		_lumax_apply_xr_flow_profile_guardrails()
 		_lumax_apply_quest_display_mode(iface)
+		_lumax_apply_xr_runtime_flow_tuning(iface)
 	var labels: PackedStringArray = PackedStringArray(["Auto", "Pure passthrough", "XR mixed", "VR immersive"])
 	var i: int = clampi(mode_idx, 0, labels.size() - 1)
 	_show_user_notification("QUEST", "Display: " + labels[i], Color.DODGER_BLUE)
+
+
+func _on_xr_flow_profile_selected(mode_idx: int) -> void:
+	xr_flow_profile = mode_idx as XRFlowProfile
+	if not get_viewport().use_xr:
+		_show_user_notification("XR", "Flow profile saved; applies when XR is active.", Color.GRAY)
+		return
+	var iface: XRInterface = XRServer.find_interface("OpenXR")
+	if iface:
+		_lumax_apply_xr_runtime_flow_tuning(iface)
+	var labels: PackedStringArray = PackedStringArray(["Off", "Balanced", "Performance"])
+	var i: int = clampi(mode_idx, 0, labels.size() - 1)
+	_show_user_notification("XR", "Flow profile: " + labels[i], Color.SKY_BLUE)
 
 
 func _on_system_check_requested():
@@ -1496,6 +1660,16 @@ func _on_soul_verification_requested():
 func _on_user_certification_requested():
 	_show_jen_notification("Initiating Certification Ritual...", Color.GOLD)
 	if _synapse: _synapse.call("send_chat_message", "[CERTIFY_USER]")
+
+
+func _on_emotion_stimulus_requested(emotion_name: String) -> void:
+	var em := String(emotion_name).strip_edges().to_upper()
+	if em.is_empty():
+		return
+	_show_jen_notification("Stimulus: " + em, Color.SKY_BLUE)
+	if _synapse:
+		var payload := "[SENSORY: EMOTION_STIMULUS | EMOTION: %s] Daniel intentionally stimulates this emotion." % em
+		_synapse.call("inject_sensory_event", payload)
 
 func _setup_wall_screens():
 	var wall = get_node_or_null("WallAnchor")
